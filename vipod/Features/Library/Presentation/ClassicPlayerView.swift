@@ -276,7 +276,7 @@ public struct ClassicPlayerView: View {
         GeometryReader { proxy in
             // Reserve space for a two-line title, artist, and duration even on short panels.
             let metadataHeight: CGFloat = 82
-            let imageSide = max(36, min(proxy.size.width - 12, proxy.size.height - metadataHeight))
+            let imageSide = min(max(0, proxy.size.width - 12), max(0, proxy.size.height - metadataHeight - 12))
             VStack(spacing: 5) {
                 RetroArtworkFrame(artwork: artworkImage, theme: theme)
                     .frame(width: imageSide, height: imageSide)

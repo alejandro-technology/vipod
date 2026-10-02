@@ -145,22 +145,29 @@ public struct RetroArtworkFrame: View {
     }
 
     public var body: some View {
-        Group {
-            if let artwork {
-                artwork.resizable().scaledToFill()
-            } else {
-                Rectangle().fill(theme.palette.separator.opacity(0.35))
-                    .overlay {
-                        Text(String(localized: "No Artwork"))
-                            .font(.system(size: 12, weight: .medium))
-                            .foregroundStyle(theme.palette.secondaryText)
-                    }
+        GeometryReader { geometry in
+            ZStack {
+                theme.palette.screen
+                if let artwork {
+                    artwork
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: geometry.size.width, height: geometry.size.height)
+                } else {
+                    Rectangle().fill(theme.palette.separator.opacity(0.35))
+                        .overlay {
+                            Text(String(localized: "No Artwork"))
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundStyle(theme.palette.secondaryText)
+                        }
+                }
             }
+            .frame(width: geometry.size.width, height: geometry.size.height)
+            .clipShape(RoundedRectangle(cornerRadius: 3))
+            .overlay(RoundedRectangle(cornerRadius: 3).stroke(theme.palette.separator, lineWidth: 1))
+            .accessibilityLabel(artwork == nil ? String(localized: "No Artwork") : String(localized: "Album Artwork"))
         }
         .aspectRatio(1, contentMode: .fit)
-        .clipShape(RoundedRectangle(cornerRadius: 3))
-        .overlay(RoundedRectangle(cornerRadius: 3).stroke(theme.palette.separator, lineWidth: 1))
-        .accessibilityLabel(artwork == nil ? String(localized: "No Artwork") : String(localized: "Album Artwork"))
     }
 }
 

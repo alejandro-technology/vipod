@@ -10,6 +10,44 @@ import UIKit
 
 @MainActor
 final class ClassicArtworkPresentationTests: XCTestCase {
+    func testArtworkFitsCenteredSquareAcrossSourceAspectRatios() throws {
+        let cases = [(1000, 562), (300, 300), (500, 500), (300, 500), (4000, 2248)]
+        let red = CGColor(red: 1, green: 0, blue: 0, alpha: 1)
+
+        for (sourceWidth, sourceHeight) in cases {
+            let image = try XCTUnwrap(solidImage(width: sourceWidth, height: sourceHeight, color: red))
+            let frameSide: CGFloat = 78
+            let host = ArtworkFrameTestHost(artwork: Image(decorative: image, scale: 1), frameSide: frameSide)
+            defer { host.close() }
+
+            let snapshot = try XCTUnwrap(host.snapshot())
+            let redBounds = try XCTUnwrap(host.redBounds(in: snapshot), "Synthetic artwork should render.")
+            let markerBounds = try XCTUnwrap(host.greenBounds(in: snapshot), "The fixed square marker should render.")
+            let squareBounds = markerBounds.insetBy(dx: markerBounds.width / frameSide, dy: markerBounds.height / frameSide)
+            let sourceAspectRatio = CGFloat(sourceWidth) / CGFloat(sourceHeight)
+            let expectedWidth = squareBounds.width * min(1, sourceAspectRatio)
+            let expectedHeight = squareBounds.height * min(1, 1 / sourceAspectRatio)
+            let tolerance = max(2, markerBounds.width / frameSide * 2)
+
+            XCTAssertGreaterThanOrEqual(redBounds.minX, squareBounds.minX - tolerance, "\(sourceWidth)x\(sourceHeight) artwork overflowed left.")
+            XCTAssertLessThanOrEqual(redBounds.maxX, squareBounds.maxX + tolerance, "\(sourceWidth)x\(sourceHeight) artwork overflowed right.")
+            XCTAssertGreaterThanOrEqual(redBounds.minY, squareBounds.minY - tolerance, "\(sourceWidth)x\(sourceHeight) artwork overflowed above.")
+            XCTAssertLessThanOrEqual(redBounds.maxY, squareBounds.maxY + tolerance, "\(sourceWidth)x\(sourceHeight) artwork overflowed below.")
+            XCTAssertEqual(redBounds.midX, squareBounds.midX, accuracy: tolerance, "Artwork should be horizontally centered in its square.")
+            XCTAssertEqual(redBounds.midY, squareBounds.midY, accuracy: tolerance, "Artwork should be vertically centered in its square.")
+            XCTAssertEqual(redBounds.width, expectedWidth, accuracy: tolerance, "Unexpected fitted width for \(sourceWidth)x\(sourceHeight) artwork.")
+            XCTAssertEqual(redBounds.height, expectedHeight, accuracy: tolerance, "Unexpected fitted height for \(sourceWidth)x\(sourceHeight) artwork.")
+        }
+    }
+
+    private func solidImage(width: Int, height: Int, color: CGColor) -> CGImage? {
+        let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
+                                space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+        context?.setFillColor(color)
+        context?.fill(CGRect(x: 0, y: 0, width: width, height: height))
+        return context?.makeImage()
+    }
+
     func testImportedArtworkAppearsWhenPlaybackStartsAfterViewMounts() async throws {
         let fixture = try XCTUnwrap(Bundle(for: Self.self).url(forResource: "VIPOD-ArtworkTone", withExtension: "m4a"))
         let plainFixture = try XCTUnwrap(Bundle(for: Self.self).url(forResource: "VIPOD-TestTone", withExtension: "mp3"))
@@ -87,6 +125,108 @@ final class ClassicArtworkPresentationTests: XCTestCase {
             add(attachment)
         }
         XCTAssertEqual(host.redPixelCount() > 500, visible, "The red cover must follow the selected track, replacing the placeholder only when artwork exists.")
+    }
+}
+
+@MainActor
+private final class ArtworkFrameTestHost {
+    nonisolated deinit {}
+    static let hostSide: CGFloat = 180
+    #if os(macOS)
+    private let window: NSWindow
+    private let hostingView: NSHostingView<AnyView>
+    #else
+    private let window: UIWindow
+    private let controller: UIHostingController<AnyView>
+    #endif
+
+    init(artwork: Image, frameSide: CGFloat) {
+        let content = AnyView(
+            ZStack {
+                Color(red: 0, green: 0, blue: 1)
+                RetroArtworkFrame(artwork: artwork)
+                    .frame(width: frameSide, height: frameSide)
+                    .overlay(Rectangle().stroke(Color(red: 0, green: 1, blue: 0), lineWidth: 2))
+            }
+            .frame(width: Self.hostSide, height: Self.hostSide)
+        )
+        let frame = CGRect(x: 0, y: 0, width: Self.hostSide, height: Self.hostSide)
+        #if os(macOS)
+        hostingView = NSHostingView(rootView: content)
+        window = NSWindow(contentRect: frame, styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = hostingView
+        window.makeKeyAndOrderFront(nil)
+        #else
+        controller = UIHostingController(rootView: content)
+        window = UIWindow(frame: frame)
+        window.rootViewController = controller
+        controller.view.frame = frame
+        window.makeKeyAndVisible()
+        #endif
+    }
+
+    func close() {
+        #if os(macOS)
+        window.close()
+        #else
+        window.isHidden = true
+        window.rootViewController = nil
+        #endif
+    }
+
+    func snapshot() -> CGImage? {
+        #if os(macOS)
+        hostingView.layoutSubtreeIfNeeded()
+        guard let bitmap = hostingView.bitmapImageRepForCachingDisplay(in: hostingView.bounds) else { return nil }
+        hostingView.cacheDisplay(in: hostingView.bounds, to: bitmap)
+        return bitmap.cgImage
+        #else
+        controller.view.layoutIfNeeded()
+        return UIGraphicsImageRenderer(bounds: controller.view.bounds).image { _ in
+            controller.view.drawHierarchy(in: controller.view.bounds, afterScreenUpdates: true)
+        }.cgImage
+        #endif
+    }
+
+    func redBounds(in image: CGImage) -> CGRect? {
+        colorBounds(in: image) { red, green, blue in red > 200 && green < 60 && blue < 60 }
+    }
+
+    func greenBounds(in image: CGImage) -> CGRect? {
+        colorBounds(in: image) { red, green, blue in green > 120 && red < 100 && blue < 100 }
+    }
+
+    private func colorBounds(in image: CGImage, matches: (UInt8, UInt8, UInt8) -> Bool) -> CGRect? {
+        let bytes = pixelBytes(image)
+        var minX = image.width
+        var minY = image.height
+        var maxX = -1
+        var maxY = -1
+        for y in 0..<image.height {
+            for x in 0..<image.width {
+                let offset = (y * image.width + x) * 4
+                guard matches(bytes[offset], bytes[offset + 1], bytes[offset + 2]) else { continue }
+                minX = min(minX, x)
+                minY = min(minY, y)
+                maxX = max(maxX, x)
+                maxY = max(maxY, y)
+            }
+        }
+        guard maxX >= minX, maxY >= minY else { return nil }
+        return CGRect(x: minX, y: image.height - maxY - 1, width: maxX - minX + 1, height: maxY - minY + 1)
+    }
+
+    private func pixelBytes(_ image: CGImage) -> [UInt8] {
+        var bytes = [UInt8](repeating: 0, count: image.width * image.height * 4)
+        bytes.withUnsafeMutableBytes { buffer in
+            guard let context = CGContext(data: buffer.baseAddress, width: image.width, height: image.height,
+                                          bitsPerComponent: 8, bytesPerRow: image.width * 4,
+                                          space: CGColorSpaceCreateDeviceRGB(),
+                                          bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return }
+            context.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
+        }
+        return bytes
     }
 }
 
