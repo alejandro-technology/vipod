@@ -55,7 +55,9 @@ public struct ClickWheel: View {
                 Button(action: guarded(menu)) {
                     Text(String(localized: "MENU"))
                         .font(.system(size: max(12, diameter * 0.052), weight: .semibold))
-                        .frame(width: 64, height: 48)
+                        .foregroundStyle(theme.palette.controlText)
+                        .lineLimit(1)
+                        .frame(width: max(64, wheelDiameter * 0.36), height: 48)
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)

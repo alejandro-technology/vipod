@@ -19,6 +19,13 @@ struct vipodApp: App {
                 startupFailed: composition.didFailToStart,
                 retryStartup: composition.retryStartup
             )
+            #if os(macOS)
+                .portraitPlayerWindow()
+            #endif
         }
+        #if os(macOS)
+        .defaultSize(width: PortraitPlayerWindow.defaultSize.width, height: PortraitPlayerWindow.defaultSize.height)
+        .windowResizability(.contentMinSize)
+        #endif
     }
 }

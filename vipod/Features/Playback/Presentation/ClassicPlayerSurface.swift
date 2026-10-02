@@ -36,8 +36,13 @@ public struct ClassicPlayerSurface<ScreenContent: View>: View {
 
     public var body: some View {
         GeometryReader { proxy in
+            #if os(macOS)
+            let compactLandscape = false
+            let contentWidth = min(min(proxy.size.width, proxy.size.height * 420 / 780), 760)
+            #else
             let compactLandscape = proxy.size.width > proxy.size.height * 1.2
             let contentWidth = min(proxy.size.width, 760)
+            #endif
 
             Group {
                 if compactLandscape {
