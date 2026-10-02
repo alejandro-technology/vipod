@@ -6,8 +6,28 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXContainerItemProxy section */
+		B100000C3000000000000000 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = A924B623306F53F10064A055 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = A924B62A306F53F10064A055;
+			remoteInfo = vipod;
+		};
+		B20000083000000000000008 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = A924B623306F53F10064A055 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = A924B62A306F53F10064A055;
+			remoteInfo = vipod;
+		};
+/* End PBXContainerItemProxy section */
+
 /* Begin PBXFileReference section */
 		A924B62B306F53F10064A055 /* vipod.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = vipod.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		B10000013000000000000001 /* vipodTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = vipodTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		B10000023000000000000002 /* BackgroundAudio-iOS.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = "BackgroundAudio-iOS.plist"; sourceTree = "<group>"; };
+		B20000013000000000000001 /* vipodUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = vipodUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -16,10 +36,34 @@
 			path = vipod;
 			sourceTree = "<group>";
 		};
+		B10000033000000000000003 /* vipodTests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = vipodTests;
+			sourceTree = "<group>";
+		};
+		B20000023000000000000002 /* vipodUITests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = vipodUITests;
+			sourceTree = "<group>";
+		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
 		A924B628306F53F10064A055 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		B10000063000000000000006 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		B20000053000000000000005 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -33,6 +77,9 @@
 			isa = PBXGroup;
 			children = (
 				A924B62D306F53F10064A055 /* vipod */,
+				B10000023000000000000002 /* BackgroundAudio-iOS.plist */,
+				B10000033000000000000003 /* vipodTests */,
+				B20000023000000000000002 /* vipodUITests */,
 				A924B62C306F53F10064A055 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -41,6 +88,8 @@
 			isa = PBXGroup;
 			children = (
 				A924B62B306F53F10064A055 /* vipod.app */,
+				B10000013000000000000001 /* vipodTests.xctest */,
+				B20000013000000000000001 /* vipodUITests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -70,6 +119,48 @@
 			productReference = A924B62B306F53F10064A055 /* vipod.app */;
 			productType = "com.apple.product-type.application";
 		};
+		B10000043000000000000004 /* vipodTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = B100000B3000000000000000 /* Build configuration list for PBXNativeTarget "vipodTests" */;
+			buildPhases = (
+				B10000053000000000000005 /* Sources */,
+				B10000063000000000000006 /* Frameworks */,
+				B10000073000000000000007 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				B10000083000000000000008 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				B10000033000000000000003 /* vipodTests */,
+			);
+			name = vipodTests;
+			productName = vipodTests;
+			productReference = B10000013000000000000001 /* vipodTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+		B20000033000000000000003 /* vipodUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = B200000B300000000000000B /* Build configuration list for PBXNativeTarget "vipodUITests" */;
+			buildPhases = (
+				B20000043000000000000004 /* Sources */,
+				B20000053000000000000005 /* Frameworks */,
+				B20000063000000000000006 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				B20000073000000000000007 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				B20000023000000000000002 /* vipodUITests */,
+			);
+			name = vipodUITests;
+			productName = vipodUITests;
+			productReference = B20000013000000000000001 /* vipodUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -82,6 +173,14 @@
 				TargetAttributes = {
 					A924B62A306F53F10064A055 = {
 						CreatedOnToolsVersion = 26.3;
+					};
+					B10000043000000000000004 = {
+						CreatedOnToolsVersion = 26.3;
+						TestTargetID = A924B62A306F53F10064A055;
+					};
+					B20000033000000000000003 = {
+						CreatedOnToolsVersion = 26.3;
+						TestTargetID = A924B62A306F53F10064A055;
 					};
 				};
 			};
@@ -100,12 +199,28 @@
 			projectRoot = "";
 			targets = (
 				A924B62A306F53F10064A055 /* vipod */,
+				B10000043000000000000004 /* vipodTests */,
+				B20000033000000000000003 /* vipodUITests */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
 		A924B629306F53F10064A055 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		B10000073000000000000007 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		B20000063000000000000006 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -122,7 +237,34 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		B10000053000000000000005 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		B20000043000000000000004 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		B10000083000000000000008 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = A924B62A306F53F10064A055 /* vipod */;
+			targetProxy = B100000C3000000000000000 /* PBXContainerItemProxy */;
+		};
+		B20000073000000000000007 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = A924B62A306F53F10064A055 /* vipod */;
+			targetProxy = B20000083000000000000008 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		A924B634306F53F20064A055 /* Debug */ = {
@@ -254,6 +396,8 @@
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
+				"INFOPLIST_FILE[sdk=iphoneos*]" = "$(SRCROOT)/BackgroundAudio-iOS.plist";
+				"INFOPLIST_FILE[sdk=iphonesimulator*]" = "$(SRCROOT)/BackgroundAudio-iOS.plist";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;
@@ -263,8 +407,8 @@
 				"INFOPLIST_KEY_UIStatusBarStyle[sdk=iphoneos*]" = UIStatusBarStyleDefault;
 				"INFOPLIST_KEY_UIStatusBarStyle[sdk=iphonesimulator*]" = UIStatusBarStyleDefault;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
-				IPHONEOS_DEPLOYMENT_TARGET = 26.2;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = UIInterfaceOrientationPortrait;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.6;
 				LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks";
 				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = "@executable_path/../Frameworks";
 				MACOSX_DEPLOYMENT_TARGET = 15.7;
@@ -298,6 +442,8 @@
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
+				"INFOPLIST_FILE[sdk=iphoneos*]" = "$(SRCROOT)/BackgroundAudio-iOS.plist";
+				"INFOPLIST_FILE[sdk=iphonesimulator*]" = "$(SRCROOT)/BackgroundAudio-iOS.plist";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;
@@ -307,8 +453,8 @@
 				"INFOPLIST_KEY_UIStatusBarStyle[sdk=iphoneos*]" = UIStatusBarStyleDefault;
 				"INFOPLIST_KEY_UIStatusBarStyle[sdk=iphonesimulator*]" = UIStatusBarStyleDefault;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
-				IPHONEOS_DEPLOYMENT_TARGET = 26.2;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = UIInterfaceOrientationPortrait;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.6;
 				LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks";
 				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = "@executable_path/../Frameworks";
 				MACOSX_DEPLOYMENT_TARGET = 15.7;
@@ -325,6 +471,76 @@
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2,7";
+				XROS_DEPLOYMENT_TARGET = 26.2;
+			};
+			name = Release;
+		};
+		B10000093000000000000009 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.6;
+				MACOSX_DEPLOYMENT_TARGET = 15.7;
+				PRODUCT_BUNDLE_IDENTIFIER = com.alejandrotechnology.vipodTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx xros xrsimulator";
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2,7";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/vipod.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/vipod";
+				XROS_DEPLOYMENT_TARGET = 26.2;
+			};
+			name = Debug;
+		};
+		B100000A300000000000000A /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.6;
+				MACOSX_DEPLOYMENT_TARGET = 15.7;
+				PRODUCT_BUNDLE_IDENTIFIER = com.alejandrotechnology.vipodTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx xros xrsimulator";
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2,7";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/vipod.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/vipod";
+				XROS_DEPLOYMENT_TARGET = 26.2;
+			};
+			name = Release;
+		};
+		B20000093000000000000009 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.6;
+				MACOSX_DEPLOYMENT_TARGET = 15.7;
+				PRODUCT_BUNDLE_IDENTIFIER = com.alejandrotechnology.vipodUITests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx xros xrsimulator";
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2,7";
+				TEST_TARGET_NAME = vipod;
+				XROS_DEPLOYMENT_TARGET = 26.2;
+			};
+			name = Debug;
+		};
+		B200000A300000000000000A /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.6;
+				MACOSX_DEPLOYMENT_TARGET = 15.7;
+				PRODUCT_BUNDLE_IDENTIFIER = com.alejandrotechnology.vipodUITests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx xros xrsimulator";
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2,7";
+				TEST_TARGET_NAME = vipod;
 				XROS_DEPLOYMENT_TARGET = 26.2;
 			};
 			name = Release;
@@ -346,6 +562,24 @@
 			buildConfigurations = (
 				A924B637306F53F20064A055 /* Debug */,
 				A924B638306F53F20064A055 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		B100000B3000000000000000 /* Build configuration list for PBXNativeTarget "vipodTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				B10000093000000000000009 /* Debug */,
+				B100000A300000000000000A /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		B200000B300000000000000B /* Build configuration list for PBXNativeTarget "vipodUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				B20000093000000000000009 /* Debug */,
+				B200000A300000000000000A /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

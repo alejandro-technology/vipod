@@ -7,11 +7,18 @@
 
 import SwiftUI
 
+@MainActor
 @main
 struct vipodApp: App {
+    @State private var composition = AppComposition()
+
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            ContentView(
+                dependencies: composition.dependencies,
+                startupFailed: composition.didFailToStart,
+                retryStartup: composition.retryStartup
+            )
         }
     }
 }
