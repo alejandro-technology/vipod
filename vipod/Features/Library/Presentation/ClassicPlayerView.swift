@@ -133,96 +133,83 @@ public struct ClassicPlayerView: View {
         case .nowPlaying:
             nowPlayingContent
         case .settings:
-            listContent
+            settingsContent
         default:
             listContent
         }
     }
 
     private var listContent: some View {
-        VStack(spacing: 0) {
-            if model.library.isImporting {
-                HStack(spacing: 6) {
-                    ProgressView().controlSize(.small)
-                    Text(String(localized: "Importing Music…"))
-                        .font(.system(size: 11, weight: .medium))
-                }
-                .frame(maxWidth: .infinity, minHeight: 30)
-                .accessibilityElement(children: .combine)
-            }
-            if model.navigation.currentDestination == .settings, let output = audioConnection?.output {
-                VStack(spacing: 2) {
-                    Text(String.localizedStringWithFormat(String(localized: "Connected device: %@"), output.name))
-                    if audioConnection?.deviceKind == .airPods {
-                        Text(String(localized: "Battery level is unavailable."))
-                    }
-                }
-                .font(.system(size: 10, weight: .medium))
-                .foregroundStyle(theme.palette.secondaryText)
-                .frame(maxWidth: .infinity, minHeight: 34)
-                .accessibilityIdentifier("settings.bluetooth.route")
-            }
-            if isFilterable {
-                HStack(spacing: 6) {
-                    Text(String(localized: "Find"))
-                        .font(.system(size: 12, weight: .semibold))
-                    TextField(String(localized: "Filter music"), text: $model.filterText)
-                        .font(.system(size: 13))
-                        .textFieldStyle(.plain)
-                        .accessibilityLabel(String(localized: "Filter music"))
-                    if model.navigation.currentDestination == .songs {
-                        Button(action: model.requestSelectedTrackRemoval) {
-                            Image(systemName: "trash.fill")
-                                .font(.system(size: 15, weight: .semibold))
-                                .foregroundStyle(model.canRemoveSelectedTrack ? Color.red : theme.palette.secondaryText)
-                                .frame(width: 44, height: 44)
-                                .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-                        .disabled(!model.canRemoveSelectedTrack)
-                        .accessibilityIdentifier("library.remove")
-                        .accessibilityLabel(model.selectedRow.map {
-                            String.localizedStringWithFormat(String(localized: "Remove %@"), $0.title)
-                        } ?? String(localized: "Remove selected song"))
-                        .accessibilityValue(model.selectedRow?.title ?? String(localized: "No song selected"))
-                    }
-                }
-                .padding(.horizontal, 10)
-                .frame(minHeight: 38)
-                .overlay(alignment: .bottom) { theme.palette.separator.opacity(0.65).frame(height: 1) }
-            }
+        LibraryBrowserView(
+            presentation: LibraryBrowserPresentation(
+                rows: model.rows,
+                selectedRowID: model.selectedRowID,
+                selectedRowTitle: model.selectedRow?.title,
+                theme: theme,
+                reduceMotion: reduceMotion,
+                isImporting: model.library.isImporting,
+                isLoading: model.library.isLoading,
+                loadFailed: model.loadFailed,
+                hasTracks: !model.library.tracks.isEmpty,
+                shouldShowEmptyLibrary: model.shouldShowEmptyLibrary,
+                usesSplitMenu: usesSplitMenu,
+                isMainMenu: model.navigation.currentDestination == .mainMenu,
+                isFilterable: isFilterable,
+                isSongs: model.navigation.currentDestination == .songs,
+                filterText: $model.filterText,
+                canRemoveSelectedTrack: model.canRemoveSelectedTrack,
+                summary: model.importSummary,
+                failures: model.importFailures,
+                failuresExpanded: $showsImportFailures,
+                hasLibraryError: model.library.errorMessage != nil,
+                preview: MenuArtworkPreview(
+                    track: model.playback.currentTrack,
+                    artwork: artworkImage,
+                    durationText: model.currentTrackDurationText,
+                    hint: previewHint,
+                    theme: theme
+                )
+            ),
+            actions: LibraryBrowserActions(
+                importMusic: { model.isImporterPresented = true },
+                removeSelectedSong: model.requestSelectedTrackRemoval,
+                retryLoad: { Task { await model.retryLoad() } },
+                activate: model.activate
+            ),
+            titleForRow: { $0.title },
+            subtitleForRow: { $0.subtitle }
+        )
+    }
 
-            if model.loadFailed && model.library.tracks.isEmpty && model.navigation.currentDestination != .mainMenu {
-                loadFailurePanel
-            } else if model.library.isLoading && model.library.tracks.isEmpty {
-                HStack(spacing: 8) {
-                    ProgressView()
-                    Text(String(localized: "Loading Music…"))
-                        .font(.system(size: 14))
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if model.shouldShowEmptyLibrary && !usesSplitMenu {
-                emptyLibrary
-            } else if usesSplitMenu {
-                splitMenuDisplay
-            } else {
-                rowsList
-            }
+    private var settingsContent: some View {
+        PlayerSettingsView(
+            rows: model.rows,
+            selectedRowID: model.selectedRowID,
+            theme: theme,
+            reduceMotion: reduceMotion,
+            isImporting: model.library.isImporting,
+            isLoading: model.library.isLoading,
+            loadFailed: model.loadFailed,
+            hasTracks: !model.library.tracks.isEmpty,
+            summary: model.importSummary,
+            failures: model.importFailures,
+            failuresExpanded: $showsImportFailures,
+            hasLibraryError: model.library.errorMessage != nil,
+            outputName: audioConnection?.output?.name,
+            outputKind: audioConnection?.deviceKind,
+            presentation: settingsPresentation,
+            retryAction: { Task { await model.retryLoad() } },
+            activate: model.activate
+        )
+    }
 
-            if let summary = model.importSummary {
-                importReport(summary)
-            }
-            if model.loadFailed && model.library.tracks.isEmpty && model.navigation.currentDestination == .mainMenu {
-                loadFailurePanel
-            }
-            if model.library.errorMessage != nil {
-                Text(String(localized: "The music library needs attention."))
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(theme.palette.secondaryText)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-            }
-        }
+    private var settingsPresentation: PlayerSettingsPresentation {
+        PlayerSettingsPresentation(
+            isBlackTheme: isBlackTheme,
+            isShuffled: model.playback.isShuffled,
+            repeatMode: model.playback.repeatMode,
+            preferredBluetoothKind: audioConnection?.preferredDeviceKind
+        )
     }
 
     private var usesSplitMenu: Bool {
@@ -232,228 +219,21 @@ public struct ClassicPlayerView: View {
         }
     }
 
-    private var rowsList: some View {
-        ScrollViewReader { proxy in
-            ScrollView {
-                LazyVStack(spacing: 0) {
-                    ForEach(model.rows) { row in
-                        menuRow(row)
-                            .id(row.id)
-                    }
-                }
-            }
-            .scrollIndicators(.hidden)
-            .onChange(of: model.selectedRowID) { _, rowID in
-                guard let rowID else { return }
-                if reduceMotion { proxy.scrollTo(rowID, anchor: .center) }
-                else { withAnimation(.easeOut(duration: 0.16)) { proxy.scrollTo(rowID, anchor: .center) } }
-            }
-            .onAppear {
-                if let rowID = model.selectedRowID { proxy.scrollTo(rowID, anchor: .center) }
-            }
-        }
-    }
-
-    private var splitMenuDisplay: some View {
-        GeometryReader { proxy in
-            if proxy.size.width < 280 {
-                rowsList
-            } else {
-                HStack(alignment: .top, spacing: 0) {
-                    rowsList
-                        .frame(width: proxy.size.width * 0.66)
-                    theme.palette.separator.opacity(0.7)
-                        .frame(width: 1)
-                    artworkPreview
-                        .frame(width: proxy.size.width * 0.34 - 1, height: proxy.size.height)
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            }
-        }
-    }
-
-    private var artworkPreview: some View {
-        GeometryReader { proxy in
-            // Reserve space for a two-line title, artist, and duration even on short panels.
-            let metadataHeight: CGFloat = 82
-            let imageSide = min(max(0, proxy.size.width - 12), max(0, proxy.size.height - metadataHeight - 12))
-            VStack(spacing: 5) {
-                RetroArtworkFrame(artwork: artworkImage, theme: theme)
-                    .frame(width: imageSide, height: imageSide)
-                if let track = model.playback.currentTrack {
-                    Text(track.title)
-                        .font(.system(size: 11, weight: .semibold))
-                        .lineLimit(2)
-                        .multilineTextAlignment(.center)
-                    Text(track.artist)
-                        .font(.system(size: 10))
-                        .lineLimit(1)
-                        .multilineTextAlignment(.center)
-                    Text(String.localizedStringWithFormat(String(localized: "Duration: %@"), model.currentTrackDurationText))
-                        .font(.system(size: 9, weight: .medium, design: .monospaced))
-                        .foregroundStyle(theme.palette.secondaryText)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.8)
-                        .accessibilityLabel(String.localizedStringWithFormat(String(localized: "Duration %@"), model.currentTrackDurationText))
-                        .accessibilityIdentifier("menu.trackDuration")
-                } else {
-                    Text(previewHint)
-                        .font(.system(size: 10, weight: .medium))
-                        .multilineTextAlignment(.center)
-                }
-            }
-            .foregroundStyle(theme.palette.screenText)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-            .padding(.top, 7)
-            .accessibilityElement(children: .contain)
-            .accessibilityIdentifier("menu.artworkPreview")
-        }
-    }
-
     private var previewHint: String {
         if model.loadFailed { return String(localized: "Library preview is unavailable.") }
         if model.library.tracks.isEmpty { return String(localized: "Import music to add artwork") }
         return String(localized: "Choose a song to preview artwork")
     }
 
-    private var emptyLibrary: some View {
-        VStack(spacing: 8) {
-            Text(String(localized: "Your music library is empty."))
-                .font(.system(size: 14, weight: .medium))
-            Button {
-                model.isImporterPresented = true
-            } label: {
-                Text(String(localized: "Import Music"))
-                    .font(.system(size: 14, weight: .bold))
-                    .foregroundStyle(theme.palette.selectionText)
-                    .padding(.horizontal, 12)
-                    .frame(minHeight: 44)
-                    .background(theme.palette.selection)
-            }
-            .buttonStyle(.plain)
-            .disabled(model.library.isImporting)
-            .accessibilityIdentifier("library.import")
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .padding(10)
-    }
-
-    private func menuRow(_ row: ClassicPlayerRow) -> some View {
-        let isSelected = row.id == model.selectedRowID
-        let title: String = {
-            switch row.id {
-            case "theme.black": return String(localized: "Black iPod")
-            case "theme.white": return String(localized: "White iPod")
-            case "settings.shuffle": return String(localized: "Shuffle")
-            case "repeat.off": return String(localized: "Repeat Off")
-            case "repeat.all": return String(localized: "Repeat All")
-            case "repeat.one": return String(localized: "Repeat One")
-            default: return row.title
-            }
-        }()
-        let subtitle = settingsSubtitle(for: row)
-
-        return RetroMenuRow(
-            title: title,
-            subtitle: subtitle ?? row.subtitle,
-            isSelected: isSelected,
-            theme: theme,
-            action: { activate(row) }
-        )
-        .disabled(row.id == "menu.import" && model.library.isImporting)
-        .accessibilityIdentifier(accessibilityID(for: row))
-    }
-
-    private func activate(_ row: ClassicPlayerRow) {
-        model.activate(row)
-    }
-
-    private func accessibilityID(for row: ClassicPlayerRow) -> String {
-        switch row.id {
-        case "menu.music", "menu.settings", "menu.import", "menu.nowPlaying", "theme.black", "theme.white": row.id
-        default: row.id
-        }
-    }
-
-    private func settingsSubtitle(for row: ClassicPlayerRow) -> String? {
-        switch row.id {
-        case "theme.black": isBlackTheme ? String(localized: "Selected") : nil
-        case "theme.white": isBlackTheme ? nil : String(localized: "Selected")
-        case "settings.shuffle": model.playback.isShuffled ? String(localized: "On") : String(localized: "Off")
-        case "repeat.off": model.playback.repeatMode == .off ? String(localized: "Selected") : nil
-        case "repeat.all": model.playback.repeatMode == .all ? String(localized: "Selected") : nil
-        case "repeat.one": model.playback.repeatMode == .one ? String(localized: "Selected") : nil
-        case "settings.bluetooth.automatic": audioConnection?.preferredDeviceKind == .automatic ? String(localized: "Selected") : nil
-        case "settings.bluetooth.airPods": audioConnection?.preferredDeviceKind == .airPods ? String(localized: "Selected") : nil
-        case "settings.bluetooth.headphones": audioConnection?.preferredDeviceKind == .headphones ? String(localized: "Selected") : nil
-        case "settings.bluetooth.speaker": audioConnection?.preferredDeviceKind == .speaker ? String(localized: "Selected") : nil
-        default: nil
-        }
-    }
-
     private var nowPlayingContent: some View {
-        ScrollView {
-            VStack(spacing: 6) {
-                HStack(spacing: 10) {
-                    RetroArtworkFrame(artwork: artworkImage, theme: theme)
-                        .frame(width: 78, height: 78)
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(model.playback.currentTrack?.title ?? String(localized: "Nothing Playing"))
-                            .font(.system(size: 15, weight: .bold))
-                            .lineLimit(2)
-                            .accessibilityIdentifier("nowPlaying.title")
-                        Text(model.playback.currentTrack?.artist ?? String(localized: "Choose a song from Music"))
-                            .font(.system(size: 12))
-                            .lineLimit(1)
-                        Text(model.playback.currentTrack?.album ?? "")
-                            .font(.system(size: 11))
-                            .lineLimit(1)
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .padding(.horizontal, 10)
-
-                VStack(spacing: 1) {
-                    Slider(
-                        value: Binding(
-                            get: { min(max(model.playback.elapsed, 0), max(model.playback.duration, 1)) },
-                            set: { model.playback.seek(to: $0) }
-                        ),
-                        in: 0...max(model.playback.duration, 1)
-                    )
-                    .tint(theme.palette.selection)
-                    .disabled(model.playback.duration <= 0)
-                    .accessibilityLabel(String(localized: "Playback position"))
-                    .accessibilityHint(model.playback.duration > 0
-                        ? String(localized: "Adjust playback position")
-                        : String(localized: "Seeking is unavailable until the track duration is known."))
-                    RetroPlaybackProgress(
-                        progress: model.playback.duration > 0 ? model.playback.elapsed / model.playback.duration : 0,
-                        elapsed: model.formattedTime(model.playback.elapsed),
-                        duration: model.formattedTime(model.playback.duration),
-                        theme: theme
-                    )
-                }
-                .padding(.horizontal, 10)
-
-                Text(model.isSeeking
-                    ? String(localized: "Rotate to seek · Select to finish")
-                    : String(localized: "Select to enable wheel seeking"))
-                    .font(.system(size: 10, weight: .medium))
-                    .foregroundStyle(theme.palette.secondaryText)
-                    .frame(minHeight: 18)
-                    .accessibilityIdentifier("nowPlaying.seekHint")
-                if model.playback.errorMessage != nil {
-                    Button(String(localized: "Playback needs attention · Try Again")) {
-                        model.playback.play()
-                    }
-                    .font(.system(size: 10, weight: .semibold))
-                    .accessibilityHint(String(localized: "Retry playing the current track"))
-                }
-            }
-        }
-        .scrollIndicators(.hidden)
-        .padding(.vertical, 5)
+        NowPlayingView(
+            track: model.playback.currentTrack, artwork: artworkImage,
+            elapsed: model.playback.elapsed, duration: model.playback.duration,
+            elapsedText: model.formattedTime(model.playback.elapsed),
+            durationText: model.formattedTime(model.playback.duration),
+            isSeeking: model.isSeeking, hasPlaybackError: model.playback.errorMessage != nil,
+            theme: theme, onSeek: model.playback.seek(to:), onRetry: { model.playback.play() }
+        )
     }
 
     private func decodeArtwork(_ data: Data) -> Image? {
@@ -467,65 +247,6 @@ public struct ClassicPlayerView: View {
         case .artists, .artist, .albums, .album, .songs: true
         default: false
         }
-    }
-
-    private func importReport(_ summary: String) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(summary).font(.system(size: 10, weight: .semibold))
-            if !model.importFailures.isEmpty {
-                Button {
-                    showsImportFailures.toggle()
-                } label: {
-                    Text(showsImportFailures
-                        ? String(localized: "Hide failed files")
-                        : String.localizedStringWithFormat(String(localized: "Show %lld failed files"), model.importFailures.count))
-                        .font(.system(size: 10, weight: .medium))
-                }
-                .buttonStyle(.plain)
-                .accessibilityIdentifier("library.importFailures")
-                if showsImportFailures {
-                    ScrollView {
-                        LazyVStack(alignment: .leading, spacing: 2) {
-                            ForEach(model.importFailures, id: \.self) { filename in
-                                Text(String.localizedStringWithFormat(String(localized: "Could not import %@"), filename))
-                                    .font(.system(size: 9))
-                                    .lineLimit(1)
-                            }
-                        }
-                    }
-                    .frame(maxHeight: 68)
-                    .scrollIndicators(.hidden)
-                }
-            }
-        }
-        .foregroundStyle(theme.palette.secondaryText)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 8)
-        .padding(.vertical, 4)
-        .accessibilityElement(children: .contain)
-    }
-
-    private var loadFailurePanel: some View {
-        VStack(spacing: 6) {
-            Text(String(localized: "The music library could not be loaded."))
-                .font(.system(size: 12, weight: .medium))
-            Button {
-                Task { await model.retryLoad() }
-            } label: {
-                HStack(spacing: 6) {
-                    if model.library.isLoading { ProgressView().controlSize(.small) }
-                    Text(String(localized: "Retry Library Load"))
-                }
-                .font(.system(size: 12, weight: .semibold))
-                .frame(minHeight: 44)
-                .padding(.horizontal, 8)
-            }
-            .buttonStyle(.plain)
-            .disabled(model.library.isLoading)
-            .accessibilityIdentifier("library.retry")
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .padding(8)
     }
 
     private func handleImportResult(_ result: Result<[URL], Error>) {
