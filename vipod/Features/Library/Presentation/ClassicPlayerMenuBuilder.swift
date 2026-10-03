@@ -7,6 +7,11 @@ private struct AlbumKey: Hashable {
     var stableID: String {
         "album.\(artist.utf8.count):\(artist)\(title.utf8.count):\(title)"
     }
+
+    static func key(for track: Track) -> AlbumKey {
+        let artist = track.albumArtist ?? (track.isCompilation ? String(localized: "Various Artists") : track.artist)
+        return AlbumKey(artist: artist, title: track.album)
+    }
 }
 
 struct ClassicPlayerMenuBuilder {
@@ -48,7 +53,8 @@ struct ClassicPlayerMenuBuilder {
                 row(album.stableID, album.title, .open(.album(artist: album.artist, title: album.title)), subtitle: album.artist)
             }, by: filterText)
         case .album(let artist, let album):
-            let albumTracks = tracks.filter { $0.artist == artist && $0.album == album }
+            let albumTracks = tracks.filter { AlbumKey.key(for: $0) == AlbumKey(artist: artist, title: album) }
+                .sorted(by: trackOrder)
             let queue = filteredTracks(albumTracks, by: filterText)
             return filtered(albumTracks.map { trackRow($0, queue: queue) }, by: filterText)
         case .songs:
@@ -111,10 +117,32 @@ struct ClassicPlayerMenuBuilder {
     }
 
     private func albumKeys(in tracks: [Track]) -> [AlbumKey] {
-        Array(Set(tracks.map { AlbumKey(artist: $0.artist, title: $0.album) }))
+        Array(Set(tracks.map { AlbumKey.key(for: $0) }))
             .sorted { lhs, rhs in
                 lhs.artist == rhs.artist ? lhs.title < rhs.title : lhs.artist < rhs.artist
             }
+    }
+
+    private func trackOrder(_ lhs: Track, _ rhs: Track) -> Bool {
+        if lhs.discNumber != rhs.discNumber {
+            switch (lhs.discNumber, rhs.discNumber) {
+            case let (left?, right?): if left != right { return left < right }
+            case (.some, nil): return true
+            case (nil, .some): return false
+            case (nil, nil): break
+            }
+        }
+        if lhs.trackNumber != rhs.trackNumber {
+            switch (lhs.trackNumber, rhs.trackNumber) {
+            case let (left?, right?): if left != right { return left < right }
+            case (.some, nil): return true
+            case (nil, .some): return false
+            case (nil, nil): break
+            }
+        }
+        if lhs.title != rhs.title { return lhs.title.localizedStandardCompare(rhs.title) == .orderedAscending }
+        if lhs.artist != rhs.artist { return lhs.artist.localizedStandardCompare(rhs.artist) == .orderedAscending }
+        return lhs.id.uuidString < rhs.id.uuidString
     }
 
     private func bluetoothKindName(_ kind: BluetoothDeviceKind) -> String {

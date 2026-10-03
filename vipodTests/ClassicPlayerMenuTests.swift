@@ -44,6 +44,42 @@ final class ClassicPlayerMenuTests: XCTestCase {
         XCTAssertEqual(model.rows.map(\.title), ["BC", "One", "Three"])
     }
 
+    func testAlbumGroupingUsesAlbumArtistAndCompilationFallbackAndOrdersDiscThenTrack() async throws {
+        let tracks = [
+            Track(title: "Unknown", artist: "Guest Z", album: "Shared", albumArtist: "Various Artists", audioFilename: "u.mp3"),
+            Track(title: "Second", artist: "Guest B", album: "Shared", albumArtist: "Various Artists", trackNumber: 2, discNumber: 1, audioFilename: "2.mp3"),
+            Track(title: "Disc Two", artist: "Guest C", album: "Shared", albumArtist: "Various Artists", trackNumber: 1, discNumber: 2, audioFilename: "d2.mp3"),
+            Track(title: "First", artist: "Guest A", album: "Shared", albumArtist: "Various Artists", trackNumber: 1, discNumber: 1, audioFilename: "1.mp3"),
+            Track(title: "Compilation", artist: "Guest D", album: "Sampler", isCompilation: true, audioFilename: "c.mp3"),
+            Track(title: "Compilation two", artist: "Guest E", album: "Sampler", isCompilation: true, audioFilename: "c2.mp3")
+        ]
+        let model = await makeModel(tracks: tracks)
+        model.navigation.push(.albums)
+        XCTAssertEqual(model.rows.map(\.title), ["Sampler", "Shared"])
+        XCTAssertEqual(model.rows.map(\.subtitle), ["Various Artists", "Various Artists"])
+        let sharedAlbum = try XCTUnwrap(model.rows.first { $0.title == "Shared" })
+        guard case .open(let destination) = sharedAlbum.action else { return XCTFail("Expected album destination") }
+        model.navigation.push(destination)
+        XCTAssertEqual(model.rows.map(\.title), ["First", "Second", "Disc Two", "Unknown"])
+        guard case .play(_, let queue) = try XCTUnwrap(model.rows.first).action else { return XCTFail("Expected album queue") }
+        XCTAssertEqual(queue.map(\.artist), ["Guest A", "Guest B", "Guest C", "Guest Z"])
+    }
+
+    func testLegacyTrackCatalogDecodesMissingMetadataWithoutChangingIdentityOrFilenames() throws {
+        let id = UUID(uuidString: "AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE")!
+        let json = """
+        [{"id":"\(id.uuidString)","title":"Song","artist":"Artist","album":"Album","duration":12,"audioFilename":"stable.mp3","artworkFilename":"cover.jpg"}]
+        """.data(using: .utf8)!
+        let decoded = try JSONDecoder().decode([Track].self, from: json)
+        XCTAssertEqual(decoded.first?.id, id)
+        XCTAssertEqual(decoded.first?.audioFilename, "stable.mp3")
+        XCTAssertEqual(decoded.first?.artworkFilename, "cover.jpg")
+        XCTAssertNil(decoded.first?.albumArtist)
+        XCTAssertNil(decoded.first?.trackNumber)
+        XCTAssertNil(decoded.first?.discNumber)
+        XCTAssertFalse(decoded.first?.isCompilation ?? true)
+    }
+
     func testFilterRowsAndPlayQueueUseCaseInsensitiveMetadataMatches() async throws {
         let a = track("First", artist: "North", album: "Blue")
         let b = track("Second", artist: "South", album: "Red")

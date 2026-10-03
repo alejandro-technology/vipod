@@ -13,6 +13,8 @@ In **Songs**, highlight a track with the wheel and use the trash button to remov
 
 ## Test
 
+Album browsing groups tracks by album artist when tagged, groups tagged compilations under “Various Artists,” and orders known disc and track numbers first. Each track retains its credited artist; older `tracks.json` catalogs remain readable and missing metadata is enriched best-effort from app-owned audio.
+
 Run the `vipod` scheme's tests from Xcode, or use:
 
 ```sh

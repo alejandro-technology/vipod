@@ -30,6 +30,83 @@ final class FileTrackRepositoryTests: XCTestCase {
         XCTAssertEqual(player.currentTime, 0.4, accuracy: 0.01)
     }
 
+    func testLegacyCatalogEnrichmentPersistsTagsWithoutChangingTrackOrAudioIdentity() async throws {
+        let fixture = try XCTUnwrap(Bundle(for: Self.self).url(forResource: "VIPOD-TestTone", withExtension: "mp3"))
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let audioDirectory = root.appendingPathComponent("Audio", isDirectory: true)
+        let artworkDirectory = root.appendingPathComponent("Artwork", isDirectory: true)
+        try FileManager.default.createDirectory(at: audioDirectory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: artworkDirectory, withIntermediateDirectories: true)
+        let audioName = "stable-audio.mp3"
+        let audioURL = audioDirectory.appendingPathComponent(audioName)
+        try makeTaggedMP3(from: fixture).write(to: audioURL)
+        let artworkName = "stable-artwork.jpg"
+        try Data([0xFF, 0xD8, 0xFF]).write(to: artworkDirectory.appendingPathComponent(artworkName))
+        let id = UUID(uuidString: "AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE")!
+        let legacyJSON = """
+        [{"id":"\(id.uuidString)","title":"Legacy Title","artist":"Fixture Performer","album":"Fixture Album","audioFilename":"\(audioName)","artworkFilename":"\(artworkName)"}]
+        """.data(using: .utf8)!
+        try legacyJSON.write(to: root.appendingPathComponent("tracks.json"))
+        let originalAudio = try Data(contentsOf: audioURL)
+
+        let migrated = try await FileTrackRepository(storageURL: root).tracks()
+        let persisted = try await FileTrackRepository(storageURL: root).tracks()
+        let track = try XCTUnwrap(persisted.first)
+
+        XCTAssertEqual(track.id, id)
+        XCTAssertEqual(track.audioFilename, audioName)
+        XCTAssertEqual(track.artworkFilename, artworkName)
+        XCTAssertEqual(track.title, "Legacy Title")
+        XCTAssertEqual(track.artist, "Fixture Performer")
+        XCTAssertEqual(track.albumArtist, "Fixture Album Artist")
+        XCTAssertEqual(track.trackNumber, 2)
+        XCTAssertEqual(track.discNumber, 1)
+        XCTAssertEqual(migrated.first?.id, id)
+        XCTAssertEqual(try Data(contentsOf: audioURL), originalAudio)
+    }
+
+    func testDecodedNonpositiveTrackAndDiscNumbersAreDiscarded() throws {
+        let json = """
+        [{"id":"AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE","title":"Song","artist":"Artist","album":"Album","trackNumber":0,"discNumber":-3,"audioFilename":"stable.mp3"}]
+        """.data(using: .utf8)!
+        let track = try XCTUnwrap(JSONDecoder().decode([Track].self, from: json).first)
+        XCTAssertNil(track.trackNumber)
+        XCTAssertNil(track.discNumber)
+    }
+
+    private func makeTaggedMP3(from fixture: URL) throws -> Data {
+        let payload = try Data(contentsOf: fixture)
+        let audioStart: Int
+        if payload.count >= 10, payload[0] == 0x49, payload[1] == 0x44, payload[2] == 0x33 {
+            let existingTagSize = (Int(payload[6] & 0x7F) << 21) | (Int(payload[7] & 0x7F) << 14) | (Int(payload[8] & 0x7F) << 7) | Int(payload[9] & 0x7F)
+            audioStart = min(payload.count, 10 + existingTagSize)
+        } else {
+            audioStart = 0
+        }
+        func frame(_ id: String, _ text: String) -> Data {
+            let body = Data([0]) + Data(text.utf8)
+            var frameData = Data(id.utf8)
+            frameData.append(contentsOf: [UInt8((body.count >> 24) & 0xFF), UInt8((body.count >> 16) & 0xFF), UInt8((body.count >> 8) & 0xFF), UInt8(body.count & 0xFF), 0, 0])
+            frameData.append(body)
+            return frameData
+        }
+        var frames = Data()
+        frames.append(frame("TIT2", "Fixture Song"))
+        frames.append(frame("TPE1", "Fixture Performer"))
+        frames.append(frame("TALB", "Fixture Album"))
+        frames.append(frame("TPE2", "Fixture Album Artist"))
+        frames.append(frame("TRCK", "2/12"))
+        frames.append(frame("TPOS", "1/2"))
+        let size = frames.count
+        var tag = Data([0x49, 0x44, 0x33, 3, 0, 0,
+                        UInt8((size >> 21) & 0x7F), UInt8((size >> 14) & 0x7F),
+                        UInt8((size >> 7) & 0x7F), UInt8(size & 0x7F)])
+        tag.append(frames)
+        tag.append(payload.dropFirst(audioStart))
+        return tag
+    }
+
     func testImportReportsBadFileAndContinuesWithValidFixture() async throws {
         let fixture = try XCTUnwrap(Bundle(for: Self.self).url(forResource: "VIPOD-TestTone", withExtension: "mp3"))
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
