@@ -9,6 +9,7 @@ public enum PlayerDestination: Hashable, Sendable {
     case albums
     case album(artist: String, title: String)
     case songs
+    case queue
     case nowPlaying
     case settings
 }

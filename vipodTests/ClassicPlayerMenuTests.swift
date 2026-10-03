@@ -5,9 +5,9 @@ import XCTest
 final class ClassicPlayerMenuTests: XCTestCase {
     func testMainAndMusicMenusExposeStableRowsAndDestinations() async {
         let model = await makeModel()
-        XCTAssertEqual(model.rows.map(\.id), ["menu.music", "menu.shuffle", "menu.nowPlaying", "menu.settings", "menu.import"])
+        XCTAssertEqual(model.rows.map(\.id), ["menu.music", "menu.shuffle", "menu.queue", "menu.nowPlaying", "menu.settings", "menu.import"])
         let destinations: [(String, PlayerDestination)] = [
-            ("menu.music", .music), ("menu.nowPlaying", .nowPlaying), ("menu.settings", .settings)
+            ("menu.music", .music), ("menu.queue", .queue), ("menu.nowPlaying", .nowPlaying), ("menu.settings", .settings)
         ]
         for (id, destination) in destinations {
             guard let row = model.rows.first(where: { $0.id == id }), case .open(let actual) = row.action else {
@@ -157,7 +157,7 @@ final class ClassicPlayerMenuTests: XCTestCase {
         model.selectedIndex = 100
         XCTAssertEqual(model.selectedRowID, "menu.import")
         model.browse(by: 1)
-        XCTAssertEqual(model.selectedIndex, 4)
+        XCTAssertEqual(model.selectedIndex, 5)
         model.selectedIndex = -10
         XCTAssertEqual(model.selectedRowID, "menu.music")
 

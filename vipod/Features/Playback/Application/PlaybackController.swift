@@ -164,6 +164,21 @@ public final class PlaybackController {
         }
         persistSession()
     }
+    public func playNext(_ track: Track) {
+        noteUserIntent()
+        guard queue.enqueueNext(track) else { return }
+        persistSession()
+    }
+    public func addLast(_ track: Track) {
+        noteUserIntent()
+        guard queue.addLast(track) else { return }
+        persistSession()
+    }
+    public func moveQueueItem(id: UUID, to index: Int) {
+        noteUserIntent()
+        guard queue.move(id: id, toVisibleIndex: index) else { return }
+        persistSession()
+    }
     public func clearError() { errorMessage = nil }
 
     private func selectAndLoad(_ track: Track) throws {

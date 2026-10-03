@@ -135,6 +135,8 @@ public struct ClassicPlayerView: View {
         switch model.navigation.currentDestination {
         case .nowPlaying:
             nowPlayingContent
+        case .queue:
+            queueContent
         case .settings:
             settingsContent
         default:
@@ -177,7 +179,9 @@ public struct ClassicPlayerView: View {
                 importMusic: { model.isImporterPresented = true },
                 removeSelectedSong: model.requestSelectedTrackRemoval,
                 retryLoad: { Task { await model.retryLoad() } },
-                activate: model.activate
+                activate: model.activate,
+                playNext: model.playNext,
+                addLast: model.addLast
             ),
             titleForRow: { $0.title },
             subtitleForRow: { $0.subtitle }
@@ -236,6 +240,20 @@ public struct ClassicPlayerView: View {
             durationText: model.formattedTime(model.playback.duration),
             isSeeking: model.isSeeking, hasPlaybackError: model.playback.errorMessage != nil,
             theme: theme, onSeek: model.playback.seek(to:), onRetry: { model.playback.play() }
+        )
+    }
+
+    private var queueContent: some View {
+        PlaybackQueueView(
+            tracks: model.playback.queue.orderedTracks,
+            currentTrackID: model.playback.currentTrack?.id,
+            selectedTrackID: model.selectedQueueTrackID,
+            theme: theme,
+            select: model.selectQueueTrack,
+            playTrack: { id in model.selectQueueTrack(id); model.playSelectedQueueTrack() },
+            moveUp: { model.moveSelectedQueueTrack(by: -1) },
+            moveDown: { model.moveSelectedQueueTrack(by: 1) },
+            remove: model.removeSelectedQueueTrack
         )
     }
 

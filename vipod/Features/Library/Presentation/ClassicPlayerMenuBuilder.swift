@@ -26,6 +26,7 @@ struct ClassicPlayerMenuBuilder {
             return [
                 row("menu.music", String(localized: "Music"), .open(.music)),
                 row("menu.shuffle", String(localized: "Shuffle Songs"), .shuffle(tracks)),
+                row("menu.queue", String(localized: "Queue"), .open(.queue)),
                 row("menu.nowPlaying", String(localized: "Now Playing"), .open(.nowPlaying)),
                 row("menu.settings", String(localized: "Settings"), .open(.settings)),
                 row("menu.import", String(localized: "Import Music"), .importMusic)
@@ -61,6 +62,8 @@ struct ClassicPlayerMenuBuilder {
             let queue = filteredTracks(tracks, by: filterText)
             return filtered(tracks.map { trackRow($0, queue: queue) }, by: filterText)
         case .nowPlaying:
+            return []
+        case .queue:
             return []
         case .settings:
             var settingsRows: [ClassicPlayerRow] = [

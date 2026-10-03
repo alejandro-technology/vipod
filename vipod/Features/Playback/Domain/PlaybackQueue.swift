@@ -56,6 +56,48 @@ public struct PlaybackQueue: Sendable {
         if tracks.isEmpty || wasCurrent { currentIndex = nil }
         else if let currentIndex, index < currentIndex { self.currentIndex = currentIndex - 1 }
     }
+    @discardableResult
+    public mutating func enqueueNext(_ track: Track) -> Bool {
+        guard currentTrack?.id != track.id else { return false }
+        var visible = orderedTracks
+        visible.removeAll { $0.id == track.id }
+        let insertionIndex: Int
+        if let currentTrack, let currentIndex = visible.firstIndex(where: { $0.id == currentTrack.id }) {
+            insertionIndex = currentIndex + 1
+        } else {
+            insertionIndex = 0
+        }
+        visible.insert(track, at: insertionIndex)
+        setVisibleOrder(visible)
+        return true
+    }
+    @discardableResult
+    public mutating func addLast(_ track: Track) -> Bool {
+        guard currentTrack?.id != track.id else { return false }
+        var visible = orderedTracks
+        visible.removeAll { $0.id == track.id }
+        visible.append(track)
+        setVisibleOrder(visible)
+        return true
+    }
+    @discardableResult
+    public mutating func move(id: UUID, toVisibleIndex index: Int) -> Bool {
+        var visible = orderedTracks
+        guard visible.indices.contains(index), let sourceIndex = visible.firstIndex(where: { $0.id == id }) else { return false }
+        guard sourceIndex != index else { return true }
+        let currentID = currentTrack?.id
+        let track = visible.remove(at: sourceIndex)
+        visible.insert(track, at: index)
+        setVisibleOrder(visible, selectedID: currentID)
+        return true
+    }
+
+    private mutating func setVisibleOrder(_ visible: [Track], selectedID: UUID? = nil) {
+        let selectedID = selectedID ?? currentTrack?.id
+        tracks = Self.uniqueTracks(visible)
+        currentIndex = selectedID.flatMap { id in tracks.firstIndex(where: { $0.id == id }) }
+        if isShuffled { shuffledIDs = tracks.map(\.id) }
+    }
     public mutating func next(automatically: Bool = false) -> Track? {
         guard !tracks.isEmpty else { currentIndex = nil; return nil }
         if automatically, repeatMode == .one, let currentTrack { return currentTrack }

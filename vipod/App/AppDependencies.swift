@@ -19,7 +19,7 @@ final class AppDependencies {
     #endif
 
     init() throws {
-        let repository = try FileTrackRepository()
+        let repository = try FileTrackRepository(storageURL: try UITestLibraryFixture.storageURLIfRequested())
         let storageURL = repository.storageURL
         let engine = AVFoundationAudioPlayback { track in
             try FileTrackRepository.resolveMediaURL(for: track, in: storageURL)
@@ -48,6 +48,78 @@ final class AppDependencies {
         { [repository] track in
             try? await repository.artworkData(for: track)
         }
+    }
+}
+
+#if DEBUG
+private enum UITestLibraryFixture {
+    private static let rootName = "VIPOD-UITesting"
+    private static let fixtureArgument = "--uitesting-library-fixture"
+    private static let resetArgument = "--uitesting-reset-library"
+
+    static func storageURLIfRequested() throws -> URL? {
+        let arguments = ProcessInfo.processInfo.arguments
+        guard arguments.contains(fixtureArgument) else { return nil }
+        guard let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
+            throw RepositoryError.storageUnavailable
+        }
+        let root = support.appendingPathComponent(rootName, isDirectory: true).standardizedFileURL
+        guard root.lastPathComponent == rootName, root.deletingLastPathComponent() == support.standardizedFileURL else {
+            throw RepositoryError.storageUnavailable
+        }
+        if arguments.contains(resetArgument), FileManager.default.fileExists(atPath: root.path) {
+            try FileManager.default.removeItem(at: root)
+        }
+        try FileManager.default.createDirectory(at: root.appendingPathComponent("Audio", isDirectory: true), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: root.appendingPathComponent("Artwork", isDirectory: true), withIntermediateDirectories: true)
+        let catalogURL = root.appendingPathComponent("tracks.json")
+        guard !FileManager.default.fileExists(atPath: catalogURL.path) else { return root }
+        let tracks = [
+            Track(id: UUID(uuidString: "AAAAAAAA-0000-0000-0000-000000000001")!, title: "Alpha", artist: "Fixture", album: "Queue", albumArtist: "Fixture", trackNumber: 1, discNumber: 1, duration: 32, audioFilename: "alpha.wav"),
+            Track(id: UUID(uuidString: "AAAAAAAA-0000-0000-0000-000000000002")!, title: "Beta", artist: "Fixture", album: "Queue", albumArtist: "Fixture", trackNumber: 2, discNumber: 1, duration: 32, audioFilename: "beta.wav"),
+            Track(id: UUID(uuidString: "AAAAAAAA-0000-0000-0000-000000000003")!, title: "Gamma", artist: "Fixture", album: "Queue", albumArtist: "Fixture", trackNumber: 3, discNumber: 1, duration: 32, audioFilename: "gamma.wav")
+        ]
+        for track in tracks { try writeWaveFile(root.appendingPathComponent("Audio").appendingPathComponent(track.audioFilename)) }
+        try JSONEncoder().encode(tracks).write(to: catalogURL, options: .atomic)
+        let session = PlaybackSession(revision: 1, selectedTrackID: tracks[0].id, elapsed: 0,
+            queueIDs: tracks.map(\.id), shuffledIDs: tracks.map(\.id), repeatMode: .off, isShuffled: false)
+        try JSONEncoder().encode(session).write(to: root.appendingPathComponent("playback-session.json"), options: .atomic)
+        return root
+    }
+
+    private static func writeWaveFile(_ url: URL) throws {
+        let sampleRate: UInt32 = 44_100
+        let sampleCount = Int(sampleRate) * 32
+        let dataSize = UInt32(sampleCount * 2)
+        var data = Data("RIFF".utf8)
+        data.appendLE(dataSize + 36)
+        data.append(Data("WAVEfmt ".utf8))
+        data.appendLE(UInt32(16))
+        data.appendLE(UInt16(1))
+        data.appendLE(UInt16(1))
+        data.appendLE(sampleRate)
+        data.appendLE(sampleRate * 2)
+        data.appendLE(UInt16(2))
+        data.appendLE(UInt16(16))
+        data.append(Data("data".utf8))
+        data.appendLE(dataSize)
+        for sample in 0..<sampleCount {
+            let value = Int16(sin(Double(sample) * 2 * .pi * 220 / Double(sampleRate)) * 1_500)
+            data.appendLE(UInt16(bitPattern: value))
+        }
+        try data.write(to: url, options: .atomic)
+    }
+}
+#else
+private enum UITestLibraryFixture {
+    static func storageURLIfRequested() throws -> URL? { nil }
+}
+#endif
+
+private extension Data {
+    mutating func appendLE<T: FixedWidthInteger>(_ value: T) {
+        var littleEndian = value.littleEndian
+        Swift.withUnsafeBytes(of: &littleEndian) { append(contentsOf: $0) }
     }
 }
 

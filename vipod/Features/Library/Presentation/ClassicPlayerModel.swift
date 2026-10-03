@@ -9,6 +9,7 @@ public final class ClassicPlayerModel {
     public let audioConnection: AudioConnectionMonitor?
     public var navigation = PlayerNavigationState()
     public var selectedIndex = 0
+    public var selectedQueueTrackID: UUID?
     public var filterText = ""
     public var isImporterPresented = false
     public var isSeeking = false
@@ -88,6 +89,7 @@ public final class ClassicPlayerModel {
         case .albums: String(localized: "Albums")
         case .album(_, let title): title
         case .songs: String(localized: "Songs")
+        case .queue: String(localized: "Queue")
         case .nowPlaying: String(localized: "Now Playing")
         case .settings: String(localized: "Settings")
         }
@@ -134,6 +136,13 @@ public final class ClassicPlayerModel {
     }
 
     public func browse(by delta: Int) {
+        if navigation.currentDestination == .queue {
+            let tracks = playback.queue.orderedTracks
+            guard !tracks.isEmpty else { return }
+            let currentIndex = selectedQueueTrackID.flatMap { id in tracks.firstIndex(where: { $0.id == id }) } ?? 0
+            selectedQueueTrackID = tracks[min(max(currentIndex + delta, 0), tracks.count - 1)].id
+            return
+        }
         let currentRows = rows
         guard !currentRows.isEmpty else {
             if navigation.currentDestination == .nowPlaying, isSeeking {
@@ -180,6 +189,7 @@ public final class ClassicPlayerModel {
     }
 
     public func selectPressed() {
+        if navigation.currentDestination == .queue { playSelectedQueueTrack(); return }
         if navigation.currentDestination == .nowPlaying { isSeeking.toggle() }
         else { selectCurrent() }
     }
@@ -211,6 +221,37 @@ public final class ClassicPlayerModel {
     public func setRepeat(_ mode: RepeatMode) { playback.setRepeatMode(mode) }
 
     public func toggleShuffle() { playback.toggleShuffle() }
+
+    public func openQueue() {
+        selectedQueueTrackID = playback.currentTrack?.id ?? playback.queue.orderedTracks.first?.id
+        navigation.push(.queue)
+    }
+
+    public func playNext(_ track: Track) { playback.playNext(track) }
+
+    public func addLast(_ track: Track) { playback.addLast(track) }
+
+    public func selectQueueTrack(_ id: UUID) { selectedQueueTrackID = id }
+
+    public func moveSelectedQueueTrack(by delta: Int) {
+        guard let id = selectedQueueTrackID,
+              let index = playback.queue.orderedTracks.firstIndex(where: { $0.id == id }) else { return }
+        playback.moveQueueItem(id: id, to: index + delta)
+    }
+
+    public func removeSelectedQueueTrack() {
+        guard let id = selectedQueueTrackID else { return }
+        playback.removeTrack(id: id)
+        if !playback.queue.orderedTracks.contains(where: { $0.id == id }) { selectedQueueTrackID = nil }
+    }
+
+    public func removeQueueTrack(id: UUID) { playback.removeTrack(id: id) }
+
+    public func playSelectedQueueTrack() {
+        guard let id = selectedQueueTrackID,
+              let track = playback.queue.orderedTracks.first(where: { $0.id == id }) else { return }
+        playback.play(track)
+    }
 
     public func formattedTime(_ time: TimeInterval) -> String {
         guard time.isFinite, time < Double(Int.max) else { return "--:--" }

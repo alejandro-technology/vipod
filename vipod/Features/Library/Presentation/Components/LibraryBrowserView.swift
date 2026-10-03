@@ -29,6 +29,8 @@ struct LibraryBrowserActions {
     let removeSelectedSong: () -> Void
     let retryLoad: () -> Void
     let activate: (ClassicPlayerRow) -> Void
+    var playNext: (Track) -> Void = { _ in }
+    var addLast: (Track) -> Void = { _ in }
 }
 
 struct LibraryBrowserView: View {
@@ -117,7 +119,9 @@ struct LibraryBrowserView: View {
             isImporting: presentation.isImporting,
             titleForRow: titleForRow,
             subtitleForRow: subtitleForRow,
-            activate: actions.activate
+            activate: actions.activate,
+            playNext: actions.playNext,
+            addLast: actions.addLast
         )
     }
 
