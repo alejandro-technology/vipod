@@ -10,6 +10,14 @@ public struct PlaybackQueue: Sendable {
     private var shuffledIDs: [UUID] = []
 
     public init(tracks: [Track] = []) { self.tracks = Self.uniqueTracks(tracks) }
+    public mutating func restore(tracks: [Track], selectedID: UUID?, repeatMode: RepeatMode, isShuffled: Bool, shuffledIDs: [UUID]) {
+        self.tracks = Self.uniqueTracks(tracks)
+        currentIndex = selectedID.flatMap { id in self.tracks.firstIndex { $0.id == id } }
+        self.repeatMode = repeatMode
+        self.isShuffled = isShuffled
+        self.shuffledIDs = isShuffled ? shuffledIDs : []
+        normalizeShuffleOrder()
+    }
     public var currentTrack: Track? { currentIndex.flatMap { tracks.indices.contains($0) ? tracks[$0] : nil } }
     public var orderedTracks: [Track] {
         guard isShuffled else { return Self.uniqueTracks(tracks) }

@@ -25,7 +25,8 @@ final class AppDependencies {
             try FileTrackRepository.resolveMediaURL(for: track, in: storageURL)
         }
         let library = LibraryController(repository: repository)
-        let playback = PlaybackController(engine: engine)
+        let sessionStore = FilePlaybackSessionStore(url: storageURL.appendingPathComponent("playback-session.json"))
+        let playback = PlaybackController(engine: engine, sessionStore: sessionStore)
         let audioConnection = AudioConnectionMonitor()
 
         self.repository = repository

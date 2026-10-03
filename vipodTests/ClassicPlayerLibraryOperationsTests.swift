@@ -24,6 +24,29 @@ final class ClassicPlayerLibraryOperationsTests: XCTestCase {
         XCTAssertEqual(retryLoadCount, 2)
     }
 
+    func testFailedInitialLibraryLoadDoesNotConsumePausedSessionRestore() async {
+        let first = track("First")
+        let repository = OperationsRepository(tracks: [first], loadFailures: 1)
+        let sessionStore = OperationsSessionStore(session: PlaybackSession(
+            revision: 12, selectedTrackID: first.id, elapsed: 17,
+            queueIDs: [first.id], shuffledIDs: [first.id], repeatMode: .all, isShuffled: true
+        ))
+        let playback = PlaybackController(engine: OperationsPlayback(), sessionStore: sessionStore)
+        let model = ClassicPlayerModel(library: LibraryController(repository: repository), playback: playback)
+
+        await model.start()
+        XCTAssertTrue(model.loadFailed)
+        XCTAssertNil(playback.currentTrack)
+        let afterFailedLoad = await sessionStore.currentSession()
+        XCTAssertEqual(afterFailedLoad?.revision, 12)
+
+        await model.retryLoad()
+
+        XCTAssertFalse(model.loadFailed)
+        XCTAssertEqual(playback.currentTrack?.id, first.id)
+        XCTAssertEqual(playback.status, .paused)
+    }
+
     func testImportSummarizesPartialSuccessAndReplacesVisibleLibraryRows() async throws {
         let old = track("Old")
         let added = track("Added")
@@ -189,6 +212,14 @@ private actor OperationsRepository: TrackRepository {
 }
 
 private enum RepositoryError: Error { case failed }
+
+private actor OperationsSessionStore: PlaybackSessionStore {
+    private var stored: PlaybackSession?
+    init(session: PlaybackSession) { stored = session }
+    func load() async -> PlaybackSession? { stored }
+    func save(_ session: PlaybackSession) async { stored = session }
+    func currentSession() -> PlaybackSession? { stored }
+}
 
 @MainActor
 private final class OperationsPlayback: AudioPlayback {

@@ -11,6 +11,8 @@ VIPOD is a native SwiftUI music player with an iPod Classic-inspired interface f
 
 In **Songs**, highlight a track with the wheel and use the trash button to remove it from VIPOD's library. This does not delete the original audio file from your iPhone.
 
+Playback restores the last selected track, queue order, shuffle order, repeat setting, and position after the library loads, always paused. Session progress is checkpointed periodically and flushed at playback changes and when the app scene becomes inactive or enters the background. An abrupt operating-system termination may lose progress since the last checkpoint.
+
 ## Test
 
 Album browsing groups tracks by album artist when tagged, groups tagged compilations under “Various Artists,” and orders known disc and track numbers first. Each track retains its credited artist; older `tracks.json` catalogs remain readable and missing metadata is enriched best-effort from app-owned audio.

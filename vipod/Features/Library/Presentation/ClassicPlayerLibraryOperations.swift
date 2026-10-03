@@ -22,8 +22,8 @@ final class ClassicPlayerLibraryOperations {
     func start() async {
         guard !didStart else { return }
         didStart = true
-        guard library.tracks.isEmpty else { return }
-        await library.load()
+        if library.tracks.isEmpty { await library.load() }
+        if library.errorMessage == nil { await playback.restoreSession(after: library.tracks) }
         loadFailed = library.errorMessage != nil
     }
 
@@ -31,6 +31,7 @@ final class ClassicPlayerLibraryOperations {
         guard !library.isLoading else { return }
         loadFailed = false
         await library.load()
+        if library.errorMessage == nil { await playback.restoreSession(after: library.tracks) }
         loadFailed = library.errorMessage != nil
     }
 

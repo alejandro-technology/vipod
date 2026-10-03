@@ -58,6 +58,9 @@ public struct ClassicPlayerView: View {
         }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active { audioConnection?.refresh() }
+            else if phase == .inactive || phase == .background {
+                Task { await model.playback.flushSession() }
+            }
         }
         .task(id: model.playback.currentTrack?.id) {
             guard let track = model.playback.currentTrack else {
