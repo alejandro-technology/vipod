@@ -151,7 +151,7 @@ public struct RetroArtworkFrame: View {
                 if let artwork {
                     artwork
                         .resizable()
-                        .scaledToFit()
+                        .scaledToFill()
                         .frame(width: geometry.size.width, height: geometry.size.height)
                 } else {
                     Rectangle().fill(theme.palette.separator.opacity(0.35))

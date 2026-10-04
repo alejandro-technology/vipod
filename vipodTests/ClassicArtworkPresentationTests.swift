@@ -10,41 +10,40 @@ import UIKit
 
 @MainActor
 final class ClassicArtworkPresentationTests: XCTestCase {
-    func testArtworkFitsCenteredSquareAcrossSourceAspectRatios() throws {
+    func testArtworkFillsCenteredSquareAcrossSourceAspectRatios() throws {
         let cases = [(1000, 562), (300, 300), (500, 500), (300, 500), (4000, 2248)]
         let red = CGColor(red: 1, green: 0, blue: 0, alpha: 1)
+        let cyan = CGColor(red: 0, green: 1, blue: 1, alpha: 1)
 
         for (sourceWidth, sourceHeight) in cases {
-            let image = try XCTUnwrap(solidImage(width: sourceWidth, height: sourceHeight, color: red))
+            let image = try XCTUnwrap(markedImage(width: sourceWidth, height: sourceHeight, color: red, markerColor: cyan))
             let frameSide: CGFloat = 78
             let host = ArtworkFrameTestHost(artwork: Image(decorative: image, scale: 1), frameSide: frameSide)
             defer { host.close() }
 
             let snapshot = try XCTUnwrap(host.snapshot())
             let redBounds = try XCTUnwrap(host.redBounds(in: snapshot), "Synthetic artwork should render.")
+            let cyanBounds = try XCTUnwrap(host.cyanBounds(in: snapshot), "The centered artwork marker should render.")
             let markerBounds = try XCTUnwrap(host.greenBounds(in: snapshot), "The fixed square marker should render.")
             let squareBounds = markerBounds.insetBy(dx: markerBounds.width / frameSide, dy: markerBounds.height / frameSide)
-            let sourceAspectRatio = CGFloat(sourceWidth) / CGFloat(sourceHeight)
-            let expectedWidth = squareBounds.width * min(1, sourceAspectRatio)
-            let expectedHeight = squareBounds.height * min(1, 1 / sourceAspectRatio)
             let tolerance = max(2, markerBounds.width / frameSide * 2)
 
-            XCTAssertGreaterThanOrEqual(redBounds.minX, squareBounds.minX - tolerance, "\(sourceWidth)x\(sourceHeight) artwork overflowed left.")
-            XCTAssertLessThanOrEqual(redBounds.maxX, squareBounds.maxX + tolerance, "\(sourceWidth)x\(sourceHeight) artwork overflowed right.")
-            XCTAssertGreaterThanOrEqual(redBounds.minY, squareBounds.minY - tolerance, "\(sourceWidth)x\(sourceHeight) artwork overflowed above.")
-            XCTAssertLessThanOrEqual(redBounds.maxY, squareBounds.maxY + tolerance, "\(sourceWidth)x\(sourceHeight) artwork overflowed below.")
-            XCTAssertEqual(redBounds.midX, squareBounds.midX, accuracy: tolerance, "Artwork should be horizontally centered in its square.")
-            XCTAssertEqual(redBounds.midY, squareBounds.midY, accuracy: tolerance, "Artwork should be vertically centered in its square.")
-            XCTAssertEqual(redBounds.width, expectedWidth, accuracy: tolerance, "Unexpected fitted width for \(sourceWidth)x\(sourceHeight) artwork.")
-            XCTAssertEqual(redBounds.height, expectedHeight, accuracy: tolerance, "Unexpected fitted height for \(sourceWidth)x\(sourceHeight) artwork.")
+            XCTAssertEqual(redBounds.minX, squareBounds.minX, accuracy: tolerance, "Artwork should fill the square horizontally for \(sourceWidth)x\(sourceHeight).")
+            XCTAssertEqual(redBounds.maxX, squareBounds.maxX, accuracy: tolerance, "Artwork should fill the square horizontally for \(sourceWidth)x\(sourceHeight).")
+            XCTAssertEqual(redBounds.minY, squareBounds.minY, accuracy: tolerance, "Artwork should fill the square vertically for \(sourceWidth)x\(sourceHeight).")
+            XCTAssertEqual(redBounds.maxY, squareBounds.maxY, accuracy: tolerance, "Artwork should fill the square vertically for \(sourceWidth)x\(sourceHeight).")
+            XCTAssertEqual(cyanBounds.midX, squareBounds.midX, accuracy: tolerance, "The centered source marker should remain centered horizontally.")
+            XCTAssertEqual(cyanBounds.midY, squareBounds.midY, accuracy: tolerance, "The centered source marker should remain centered vertically.")
         }
     }
 
-    private func solidImage(width: Int, height: Int, color: CGColor) -> CGImage? {
+    private func markedImage(width: Int, height: Int, color: CGColor, markerColor: CGColor) -> CGImage? {
         let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
                                 space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
         context?.setFillColor(color)
         context?.fill(CGRect(x: 0, y: 0, width: width, height: height))
+        context?.setFillColor(markerColor)
+        context?.fill(CGRect(x: width * 2 / 5, y: height * 2 / 5, width: width / 5, height: height / 5))
         return context?.makeImage()
     }
 
@@ -195,6 +194,10 @@ private final class ArtworkFrameTestHost {
 
     func greenBounds(in image: CGImage) -> CGRect? {
         colorBounds(in: image) { red, green, blue in green > 120 && red < 100 && blue < 100 }
+    }
+
+    func cyanBounds(in image: CGImage) -> CGRect? {
+        colorBounds(in: image) { red, green, blue in green > 200 && blue > 200 && red < 60 }
     }
 
     private func colorBounds(in image: CGImage, matches: (UInt8, UInt8, UInt8) -> Bool) -> CGRect? {

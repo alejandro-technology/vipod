@@ -19,6 +19,20 @@ public struct PlaybackQueue: Sendable {
         normalizeShuffleOrder()
     }
     public var currentTrack: Track? { currentIndex.flatMap { tracks.indices.contains($0) ? tracks[$0] : nil } }
+    public var previousTrack: Track? { neighboringTrack(offset: -1) }
+    public var nextTrack: Track? { neighboringTrack(offset: 1) }
+
+    private func neighboringTrack(offset: Int) -> Track? {
+        let order = orderedTracks
+        guard let currentTrack,
+              let index = order.firstIndex(where: { $0.id == currentTrack.id }) else { return nil }
+
+        let neighborIndex = index + offset
+        if order.indices.contains(neighborIndex) { return order[neighborIndex] }
+        guard repeatMode == .all else { return nil }
+        return order[offset < 0 ? order.count - 1 : 0]
+    }
+
     public var orderedTracks: [Track] {
         guard isShuffled else { return Self.uniqueTracks(tracks) }
         var seen = Set<UUID>()

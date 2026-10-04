@@ -1,6 +1,72 @@
 import XCTest
 
 final class ClassicPlayerUITests: XCTestCase {
+    func testNowPlayingControlsNeighborsAndBothThemes() {
+        let app = XCUIApplication()
+        app.launchArguments = ["--uitesting-library-fixture", "--uitesting-reset-library"]
+        app.launch()
+
+        let settings = app.buttons["menu.settings"]
+        XCTAssertTrue(settings.waitForExistence(timeout: 20))
+        settings.tap()
+        let blackTheme = app.buttons["theme.black"]
+        XCTAssertTrue(blackTheme.waitForExistence(timeout: 5))
+        blackTheme.tap()
+        XCTAssertTrue(waitForValue(blackTheme, equals: "Selected"))
+        app.buttons["wheel.menu"].tap()
+
+        let nowPlaying = app.buttons["menu.nowPlaying"]
+        XCTAssertTrue(nowPlaying.waitForExistence(timeout: 20))
+        nowPlaying.tap()
+
+        let currentTitle = app.staticTexts["nowPlaying.title"]
+        let display = app.descendants(matching: .any)["classic.display"]
+        XCTAssertTrue(display.exists)
+        let previous = app.descendants(matching: .any)["nowPlaying.previous"]
+        let next = app.descendants(matching: .any)["nowPlaying.next"]
+        XCTAssertTrue(currentTitle.waitForExistence(timeout: 5))
+        XCTAssertEqual(currentTitle.label, "Alpha")
+        XCTAssertEqual(app.sliders.count, 1, "Now Playing should expose exactly one seek control.")
+        XCTAssertEqual(app.sliders.firstMatch.label, "Playback position")
+        XCTAssertEqual(previous.value as? String, "Unavailable")
+        XCTAssertEqual(next.value as? String, "Beta, Fixture")
+        assertNeighborsFitAndAlign(previous, next, in: display)
+        XCTAssertTrue(app.staticTexts["nowPlaying.elapsed"].exists)
+        XCTAssertTrue(app.staticTexts["nowPlaying.duration"].exists)
+        XCTAssertTrue(app.staticTexts["nowPlaying.seekHint"].exists)
+        XCTAssertTrue(app.staticTexts["Paused"].exists)
+        attachNowPlayingScreenshot(from: app, named: "Now Playing — black theme")
+
+        let nextControl = app.buttons["wheel.next"]
+        XCTAssertTrue(nextControl.waitForExistence(timeout: 5))
+        nextControl.tap()
+        XCTAssertEqual(currentTitle.label, "Beta")
+        XCTAssertEqual(previous.value as? String, "Alpha, Fixture")
+        XCTAssertEqual(next.value as? String, "Gamma, Fixture")
+        assertNeighborsFitAndAlign(previous, next, in: display)
+        XCTAssertTrue(app.staticTexts["Paused"].exists, "Browsing queue neighbors must not change playback state.")
+
+        app.buttons["wheel.menu"].tap()
+        XCTAssertTrue(settings.waitForExistence(timeout: 5))
+        settings.tap()
+        let whiteTheme = app.buttons["theme.white"]
+        XCTAssertTrue(whiteTheme.waitForExistence(timeout: 5))
+        whiteTheme.tap()
+        XCTAssertTrue(waitForValue(whiteTheme, equals: "Selected"))
+        app.buttons["wheel.menu"].tap()
+        XCTAssertTrue(nowPlaying.waitForExistence(timeout: 5))
+        nowPlaying.tap()
+
+        XCTAssertTrue(currentTitle.waitForExistence(timeout: 5))
+        XCTAssertEqual(currentTitle.label, "Beta")
+        XCTAssertEqual(app.sliders.count, 1)
+        XCTAssertEqual(previous.value as? String, "Alpha, Fixture")
+        XCTAssertEqual(next.value as? String, "Gamma, Fixture")
+        XCTAssertTrue(app.staticTexts["Paused"].exists)
+        assertNeighborsFitAndAlign(previous, next, in: display)
+        attachNowPlayingScreenshot(from: app, named: "Now Playing — white theme")
+    }
+
     func testMenuBackEmptyLibraryImportCTAAndThemeSelection() {
         let app = XCUIApplication()
         app.launch()
@@ -295,5 +361,25 @@ final class ClassicPlayerUITests: XCTestCase {
         let predicate = NSPredicate(format: "exists == %@", NSNumber(value: expected))
         let expectation = XCTNSPredicateExpectation(predicate: predicate, object: element)
         return XCTWaiter.wait(for: [expectation], timeout: 5) == .completed
+    }
+
+    private func attachNowPlayingScreenshot(from app: XCUIApplication, named name: String) {
+        let attachment = XCTAttachment(screenshot: app.screenshot())
+        attachment.name = name
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+
+    private func assertNeighborsFitAndAlign(_ previous: XCUIElement, _ next: XCUIElement, in display: XCUIElement) {
+        XCTAssertTrue(previous.isHittable)
+        XCTAssertTrue(next.isHittable)
+        XCTAssertGreaterThanOrEqual(previous.frame.minX, display.frame.minX)
+        XCTAssertLessThanOrEqual(next.frame.maxX, display.frame.maxX)
+        XCTAssertLessThan(previous.frame.minX, next.frame.minX, "Previous should be on the left and Next on the right.")
+        XCTAssertGreaterThanOrEqual(previous.frame.minY, display.frame.minY)
+        XCTAssertLessThanOrEqual(previous.frame.maxY, display.frame.maxY)
+        XCTAssertGreaterThanOrEqual(next.frame.minY, display.frame.minY)
+        XCTAssertLessThanOrEqual(next.frame.maxY, display.frame.maxY)
+        XCTAssertEqual(previous.frame.maxY, next.frame.maxY, accuracy: 2)
     }
 }

@@ -3,6 +3,71 @@ import XCTest
 
 @MainActor
 final class PlaybackQueueEditingTests: XCTestCase {
+    func testNeighborPreviewsFollowManualBoundariesAndRepeatAll() throws {
+        let a = track("A"), b = track("B"), c = track("C")
+        let emptyQueue = PlaybackQueue()
+        XCTAssertNil(emptyQueue.previousTrack)
+        XCTAssertNil(emptyQueue.nextTrack)
+        var queue = PlaybackQueue(tracks: [a, b, c])
+        XCTAssertNil(queue.previousTrack)
+        XCTAssertNil(queue.nextTrack)
+
+        _ = queue.select(id: a.id)
+        XCTAssertNil(queue.previousTrack)
+        XCTAssertEqual(queue.nextTrack?.id, b.id)
+        _ = queue.select(id: b.id)
+        XCTAssertEqual(queue.previousTrack?.id, a.id)
+        XCTAssertEqual(queue.nextTrack?.id, c.id)
+        _ = queue.select(id: c.id)
+        XCTAssertEqual(queue.previousTrack?.id, b.id)
+        XCTAssertNil(queue.nextTrack)
+
+        queue.setRepeatMode(.all)
+        XCTAssertEqual(queue.nextTrack?.id, a.id)
+        _ = queue.select(id: a.id)
+        XCTAssertEqual(queue.previousTrack?.id, c.id)
+        XCTAssertEqual(queue.nextTrack?.id, b.id)
+    }
+
+    func testRepeatOneDoesNotPreviewCurrentAndSingletonWrapsOnlyForRepeatAll() {
+        let solo = track("Solo")
+        var queue = PlaybackQueue(tracks: [solo])
+        _ = queue.select(id: solo.id)
+        queue.setRepeatMode(.one)
+        XCTAssertNil(queue.previousTrack)
+        XCTAssertNil(queue.nextTrack)
+        queue.setRepeatMode(.all)
+        XCTAssertEqual(queue.previousTrack?.id, solo.id)
+        XCTAssertEqual(queue.nextTrack?.id, solo.id)
+    }
+
+    func testPreviewsUseShuffleOrderAndDoNotMutateQueue() throws {
+        let tracks = [track("A"), track("B"), track("C")]
+        var queue = PlaybackQueue(tracks: tracks)
+        queue.restore(tracks: tracks, selectedID: tracks[1].id, repeatMode: .off, isShuffled: true,
+                      shuffledIDs: [tracks[2].id, tracks[1].id, tracks[0].id])
+        let beforeOrder = queue.orderedTracks.map(\.id)
+        let beforeIndex = queue.currentIndex
+        XCTAssertEqual(queue.previousTrack?.id, tracks[2].id)
+        XCTAssertEqual(queue.nextTrack?.id, tracks[0].id)
+        XCTAssertEqual(queue.orderedTracks.map(\.id), beforeOrder)
+        XCTAssertEqual(queue.currentIndex, beforeIndex)
+        XCTAssertEqual(queue.currentTrack?.id, tracks[1].id)
+    }
+
+    func testPreviewsFollowQueueReorderAndRemovalAndRequireCurrentSelection() {
+        let a = track("A"), b = track("B"), c = track("C")
+        var queue = PlaybackQueue(tracks: [a, b, c])
+        _ = queue.select(id: b.id)
+        queue.move(id: c.id, toVisibleIndex: 0)
+        XCTAssertEqual(queue.previousTrack?.id, a.id)
+        XCTAssertNil(queue.nextTrack)
+        queue.remove(id: b.id)
+        XCTAssertNil(queue.previousTrack)
+        XCTAssertNil(queue.nextTrack)
+        XCTAssertNil(queue.currentTrack)
+    }
+
     func testPlayNextAndAddLastRepositionUniqueTracksWithoutReloadingCurrentPlayback() throws {
         let a = track("A"), b = track("B"), c = track("C")
         let engine = QueueEditingTestEngine()

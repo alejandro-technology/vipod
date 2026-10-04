@@ -408,7 +408,10 @@ public struct ClassicPlayerView: View {
 
     private var nowPlayingContent: some View {
         NowPlayingView(
-            track: model.playback.currentTrack, artwork: artworkImage,
+            track: model.playback.currentTrack,
+            previousTrack: model.playback.queue.previousTrack,
+            nextTrack: model.playback.queue.nextTrack,
+            artwork: artworkImage,
             elapsed: model.playback.elapsed, duration: model.playback.duration,
             elapsedText: model.formattedTime(model.playback.elapsed),
             durationText: model.formattedTime(model.playback.duration),
