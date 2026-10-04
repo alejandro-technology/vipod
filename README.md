@@ -13,7 +13,9 @@ In **Songs**, highlight a track with the wheel and use the trash button to remov
 
 Playback restores the last selected track, queue order, shuffle order, repeat setting, and position after the library loads, always paused. Session progress is checkpointed periodically and flushed at playback changes and when the app scene becomes inactive or enters the background. An abrupt operating-system termination may lose progress since the last checkpoint.
 
-Open **Queue** from the main menu to view upcoming tracks. In a song list, open a track's actions menu to play it next or add it to the end of the queue. Select a queue item to move it up or down or remove it from playback; removing from the queue never removes the song from the library. Queue edits are saved with the playback session.
+Open **Queue** from the main menu to view upcoming tracks. Select a song and use the action toolbar below the screen to play it next or add it to the end of the queue. Select a queue item to move it up or down or remove it from playback; removing from the queue never removes the song from the library. Queue edits are saved with the playback session.
+
+Open **Music → Playlists** to create, rename, and delete named playlists. Open a playlist to play its tracks in saved order, add library songs, remove members, or reorder them. Starting a playlist clears the previous queue's shuffle order; you can enable shuffle again in Settings. **Music → Favorites** lists favorited songs. The song action toolbar can toggle favorites or add the selected song to a playlist. These collection changes never delete library audio; only the Songs library-removal action removes a song from VIPOD. Playlists and favorites survive relaunch, and an unreadable collection catalog is preserved until a successful retry.
 
 ## Test
 

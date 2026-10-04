@@ -5,6 +5,7 @@ import Observation
 final class ClassicPlayerLibraryOperations {
     private let library: LibraryController
     private let playback: PlaybackController
+    private let collections: LibraryCollectionController
     private var didStart = false
 
     var importSummary: String?
@@ -12,9 +13,10 @@ final class ClassicPlayerLibraryOperations {
     var presentationError: String?
     private(set) var loadFailed = false
 
-    init(library: LibraryController, playback: PlaybackController) {
+    init(library: LibraryController, playback: PlaybackController, collections: LibraryCollectionController) {
         self.library = library
         self.playback = playback
+        self.collections = collections
     }
 
     nonisolated deinit {}
@@ -23,6 +25,7 @@ final class ClassicPlayerLibraryOperations {
         guard !didStart else { return }
         didStart = true
         if library.tracks.isEmpty { await library.load() }
+        if library.errorMessage == nil { await collections.updateLibraryTracks(library.tracks); await collections.load() }
         if library.errorMessage == nil { await playback.restoreSession(after: library.tracks) }
         loadFailed = library.errorMessage != nil
     }
@@ -31,6 +34,7 @@ final class ClassicPlayerLibraryOperations {
         guard !library.isLoading else { return }
         loadFailed = false
         await library.load()
+        if library.errorMessage == nil { await collections.updateLibraryTracks(library.tracks); await collections.load() }
         if library.errorMessage == nil { await playback.restoreSession(after: library.tracks) }
         loadFailed = library.errorMessage != nil
     }
@@ -41,6 +45,7 @@ final class ClassicPlayerLibraryOperations {
         library.clearError()
         let removed = await library.removeTrack(id: track.id)
         if removed {
+            await collections.updateLibraryTracks(library.tracks)
             playback.removeTrack(id: track.id)
         } else if let error = library.errorMessage {
             presentationError = error
@@ -57,6 +62,8 @@ final class ClassicPlayerLibraryOperations {
         defer { accessedURLs.forEach { $0.stopAccessingSecurityScopedResource() } }
         // Keep every selected URL so the repository can report per-file failures.
         await library.importTracks(from: urls)
+        // Partial imports publish successfully imported tracks even when some files fail.
+        await collections.updateLibraryTracks(library.tracks)
         if !library.tracks.isEmpty { loadFailed = false }
         if let report = library.lastImportReport, !sameReport(report, previousReport) {
             let count = report.imported.count

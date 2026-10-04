@@ -6,6 +6,7 @@ import Observation
 public final class ClassicPlayerModel {
     public let library: LibraryController
     public let playback: PlaybackController
+    public let collections: LibraryCollectionController
     public let audioConnection: AudioConnectionMonitor?
     public var navigation = PlayerNavigationState()
     public var selectedIndex = 0
@@ -32,11 +33,13 @@ public final class ClassicPlayerModel {
     }
     public var loadFailed: Bool { operations.loadFailed }
 
-    public init(library: LibraryController, playback: PlaybackController, audioConnection: AudioConnectionMonitor? = nil) {
+    public init(library: LibraryController, playback: PlaybackController, collections: LibraryCollectionController? = nil, audioConnection: AudioConnectionMonitor? = nil) {
         self.library = library
         self.playback = playback
+        let collections = collections ?? LibraryCollectionController(store: InMemoryLibraryCollectionStore(), tracks: library.tracks)
+        self.collections = collections
         self.audioConnection = audioConnection
-        self.operations = ClassicPlayerLibraryOperations(library: library, playback: playback)
+        self.operations = ClassicPlayerLibraryOperations(library: library, playback: playback, collections: collections)
     }
 
     // View teardown requires no actor-isolated work; avoid the same simulator
@@ -44,12 +47,27 @@ public final class ClassicPlayerModel {
     nonisolated deinit {}
 
     public var rows: [ClassicPlayerRow] {
-        menuBuilder.rows(
+        let base = menuBuilder.rows(
             for: navigation.currentDestination,
             tracks: library.tracks,
             filterText: filterText,
             hasConnectedAudioOutput: audioConnection?.output != nil
         )
+        switch navigation.currentDestination {
+        case .playlists:
+            return collections.catalog.playlists.map { playlist in
+                ClassicPlayerRow(id: "playlist.\(playlist.id.uuidString)", title: playlist.name, subtitle: "\(playlist.trackIDs.count)", action: .open(.playlist(id: playlist.id)))
+            }
+        case .favorites:
+            let favorites = library.tracks.filter { collections.catalog.favoriteTrackIDs.contains($0.id) }
+            return favorites.map { ClassicPlayerRow(id: "track.\($0.id.uuidString)", title: $0.title, subtitle: $0.artist, action: .play($0, queue: favorites)) }
+        case .playlist(let id):
+            guard let playlist = collections.catalog.playlists.first(where: { $0.id == id }) else { return [] }
+            let byID = Dictionary(library.tracks.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+            let ordered = playlist.trackIDs.compactMap { byID[$0] }
+            return ordered.map { ClassicPlayerRow(id: "track.\($0.id.uuidString)", title: $0.title, subtitle: $0.artist, action: .play($0, queue: ordered)) }
+        default: return base
+        }
     }
 
     public var selectedRow: ClassicPlayerRow? {
@@ -84,6 +102,9 @@ public final class ClassicPlayerModel {
         switch navigation.currentDestination {
         case .mainMenu: String(localized: "iPod")
         case .music: String(localized: "Music")
+        case .playlists: String(localized: "Playlists")
+        case .playlist(let id): collections.catalog.playlists.first(where: { $0.id == id })?.name ?? String(localized: "Playlist")
+        case .favorites: String(localized: "Favorites")
         case .artists: String(localized: "Artists")
         case .artist(let name): name
         case .albums: String(localized: "Albums")
@@ -231,6 +252,45 @@ public final class ClassicPlayerModel {
 
     public func addLast(_ track: Track) { playback.addLast(track) }
 
+    public func createPlaylist(named name: String) async -> UUID? {
+        let id = await collections.createPlaylist(named: name)
+        presentationError = collections.errorMessage
+        return id
+    }
+    public func renamePlaylist(id: UUID, to name: String) async {
+        await collections.renamePlaylist(id: id, to: name)
+        presentationError = collections.errorMessage
+    }
+    public func deletePlaylist(id: UUID) async {
+        await collections.deletePlaylist(id: id)
+        presentationError = collections.errorMessage
+    }
+    public func addToPlaylist(_ trackID: UUID, playlistID: UUID) async {
+        await collections.addTrack(trackID, toPlaylist: playlistID)
+        presentationError = collections.errorMessage
+    }
+    public func removeFromPlaylist(_ trackID: UUID, playlistID: UUID) async {
+        await collections.removeTrack(trackID, fromPlaylist: playlistID)
+        presentationError = collections.errorMessage
+    }
+    public func toggleFavorite(_ trackID: UUID) async {
+        await collections.toggleFavorite(trackID)
+        presentationError = collections.errorMessage
+    }
+    public func movePlaylistTrack(playlistID: UUID, trackID: UUID, by offset: Int) async {
+        await collections.moveTrack(trackID, inPlaylist: playlistID, by: offset)
+        presentationError = collections.errorMessage
+    }
+    public func playCollection(_ ids: [UUID]) {
+        let byID = Dictionary(library.tracks.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        let ordered = ids.compactMap { byID[$0] }
+        guard let first = ordered.first else { return }
+        if playback.isShuffled { playback.toggleShuffle() }
+        playback.replaceQueue(with: ordered)
+        playback.play(first)
+        navigation.push(.nowPlaying)
+    }
+
     public func selectQueueTrack(_ id: UUID) { selectedQueueTrackID = id }
 
     public func moveSelectedQueueTrack(by delta: Int) {
@@ -269,6 +329,9 @@ public final class ClassicPlayerModel {
             filterText = ""
             resetSelection()
         case .play(let track, let queue):
+            if case .playlist = navigation.currentDestination, playback.isShuffled {
+                playback.toggleShuffle()
+            }
             playback.replaceQueue(with: queue)
             playback.play(track)
             navigation.push(.nowPlaying)
@@ -305,4 +368,31 @@ public final class ClassicPlayerModel {
               library.tracks.contains(where: { $0.id == track.id }) else { return nil }
         return track
     }
+
+    public var selectedSongTrack: Track? {
+        guard let selectedRow, case .play(let track, _) = selectedRow.action else { return nil }
+        return track
+    }
+
+    public var isSelectedTrackFavorite: Bool {
+        guard let track = selectedSongTrack else { return false }
+        return collections.catalog.favoriteTrackIDs.contains(track.id)
+    }
+
+    public var shouldShowSongActions: Bool {
+        navigation.currentDestination == .songs || selectedSongTrack != nil
+    }
+
+    public func selectRow(_ row: ClassicPlayerRow) {
+        let currentRows = rows
+        if let index = currentRows.firstIndex(where: { $0.id == row.id }) {
+            selectedIndex = index
+        }
+    }
+}
+
+private actor InMemoryLibraryCollectionStore: LibraryCollectionStore {
+    private var catalog = LibraryCollectionCatalog()
+    func load() async throws -> LibraryCollectionCatalog { catalog }
+    func save(_ catalog: LibraryCollectionCatalog) async throws { self.catalog = catalog }
 }

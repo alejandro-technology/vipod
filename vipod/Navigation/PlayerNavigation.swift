@@ -4,6 +4,9 @@ import SwiftUI
 public enum PlayerDestination: Hashable, Sendable {
     case mainMenu
     case music
+    case playlists
+    case playlist(id: UUID)
+    case favorites
     case artists
     case artist(name: String)
     case albums

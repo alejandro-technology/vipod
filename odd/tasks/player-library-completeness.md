@@ -35,9 +35,9 @@ Delivery strategy is `auto-chain`, with `chain_strategy: feature-branch-chain`. 
 - [x] T1 preserves legacy `tracks.json` compatibility, correct album metadata/grouping/order, and best-effort enrichment from already imported app-owned audio without fabricating tags or changing IDs/files (implementation and focused test/commit evidence recorded below; RDD is OFF/disabled/unmanaged by explicit clone choice).
 - [x] T2 persists and safely restores the complete playback session after library load, paused and without autoplay; durable saves are serialized and progress/lifecycle flushes are reasonable.
 - [x] T3 provides accessible queue play-next, add-last, move, and remove workflows without removing tracks from the library.
-- [ ] T4 provides accessible iPod-style persistent named playlist create/rename/delete/add/remove/reorder and persistent favorites; library-deletion reconciliation never deletes audio.
+- [x] T4 provides accessible iPod-style persistent named playlist create/rename/delete/add/remove/reorder and persistent favorites; library-deletion reconciliation never deletes audio.
 - [ ] Every task delivers implementation, relevant tests, and a short README update as one work unit.
-- [ ] Existing baseline behavior remains green; final full test suite, macOS build, and `git diff --check` pass.
+- [x] Existing baseline behavior remains green; final full test suite, macOS build, and `git diff --check` pass.
 
 ## Work units
 
@@ -65,15 +65,15 @@ Delivery strategy is `auto-chain`, with `chain_strategy: feature-branch-chain`. 
 
 - [x] Inspect queue state, navigation/composition, and existing accessible iPod-style interactions before implementation.
 - [x] Deliver accessible play-next, add-last, move, and remove actions for the visible queue; queue removal never deletes a library track.
-- [x] Add behavior-first tests, short README update, evidence, and one coherent work-unit commit. Parent verification/commit remains pending.
+- [x] Add behavior-first tests, short README update, evidence, and one coherent work-unit commit. Parent verification passed 19 focused tests plus the queue UI case; commit `cc6bf8f` (`feat(playback): add editable playback queue`).
 
 ### T4 — Manage playlists and favorites
 
 **Route:** delegated by task boundary after read preparation establishes 2+ nontrivial source files and collection persistence, library deletion, navigation, and accessibility call paths. Parent retains native risk, consent, and review.
 
-- [ ] Inspect library deletion/reconciliation and existing navigation/accessibility patterns before implementation.
-- [ ] Deliver persistent named playlists with create/rename/delete/add/remove/reorder and persistent favorites through accessible iPod-style workflows.
-- [ ] Reconcile deleted library tracks from collections without deleting audio when collections are modified.
+- [x] Inspect library deletion/reconciliation and existing navigation/accessibility patterns before implementation.
+- [x] Deliver persistent named playlists with create/rename/delete/add/remove/reorder and persistent favorites through accessible iPod-style workflows.
+- [x] Reconcile deleted library tracks from collections without deleting audio when collections are modified.
 - [ ] Add behavior-first tests, short README update, evidence, and one coherent work-unit commit.
 
 ## Delegation and implementation protocol
@@ -122,7 +122,21 @@ Also run `git diff --check`.
   xcodebuild test -quiet -project vipod.xcodeproj -scheme vipod -destination 'platform=iOS Simulator,id=BB74B3A7-2E36-4733-A64D-2A67F425F526' -derivedDataPath '/var/folders/_8/xr5shfw97998zq57_jc38zlh0000gn/T/opencode/vipod-library-work' -resultBundlePath '/var/folders/_8/xr5shfw97998zq57_jc38zlh0000gn/T/opencode/vipod-t3-ui-queueview.xcresult' -only-testing:vipodUITests/ClassicPlayerUITests/testQueueActionsReorderWithoutPlaybackOrLibraryRemovalAndPersistOnRelaunch -parallel-testing-enabled NO
   ```
 - **Chain record:** `auto-chain` / `feature-branch-chain`; no PR/push requested.
-- **Next step:** parent performs independent verification and handles the authorized local commit/integration workflow. No stage/commit/merge was performed in this T3 implementation step. T4 remains untouched.
+- **T3 parent completion:** committed as `cc6bf8f`; independent verification passed 19 queue/session unit tests and the queue UI case, with zero failures/skips.
+- **T4 recovery and active correction:** the previous writer stopped before delivery (task unavailable after runtime restart). Recovered source and result bundles: initial T4 behavioral RED was 4 failed tests; writer core GREEN passed 7 tests and full units passed 96, but the collection relaunch UI case failed. Parent inspection found startup calls `updateLibraryTracks` before `load`, overwriting durable collections with an empty in-memory catalog. Parent owns controller/orchestration corrections and regression tests; a bounded Luna writer owns collection UI tests, followed by authorized UI corrections after observed RED. Final T4 verification and commit remain pending.
+- **T4 corrective RED/GREEN:** five recovery tests failed before fixing startup overwrite, corruption write protection, first-use load, failed-load retry, and partial-import membership. Two command regressions then failed before correcting concurrent favorite toggles and presentation errors. Focused collection/orchestration verification passed 23 tests. A native member-selection test failed against the old first-song behavior before UI correction; the two T4 UI cases and the T3 queue UI case then passed. Initial native-alert identifier/query and simulator Busy failures were diagnosed separately and were not counted as behavioral RED.
+- **T4 ordering RED/GREEN:** current-source `vipod-order-red.xcresult` ran two tests, both failed behaviorally: queued relative moves lost an update, and playlist playback inherited the previous queue's shuffle order. Relative moves now execute inside the mutation gate against the latest catalog; explicitly starting a playlist uses its saved order. Current focused collection/orchestration verification: **25 passed, 0 failed, 0 skipped**, result `vipod-order-green.xcresult`.
+- **Current UI preservation:** during the pause, existing work moved song actions into `SongActionsToolbar` below the screen and adapted UI tests to its identifiers. Those changes were preserved and included in final verification. `.codegraph/` and `.derivedData/` remain untracked and were not deleted. Older temporary bundles were cleared during the pause; historical results above describe the runs at the time, while the final bundle below verifies the current source.
+- **Final verification:** full native scheme **113 passed, 0 failed, 0 skipped**, including collection CRUD/reorder/favorites/relaunch, selected-member wheel playback, queue editing/relaunch, and baseline UI behavior. Result: `/var/folders/_8/xr5shfw97998zq57_jc38zlh0000gn/T/opencode/vipod-final-all.xcresult`. Supported macOS build **PASS**; `git diff --check` **PASS**. Independent read-only Luna verification found no concrete collection persistence/orchestration defect; it did not execute tests and does not represent a native RDD receipt.
+- **T4 rollback boundary:** remove the collection catalog/controller/file adapter and collection-specific composition/navigation/presentation/tests/README changes, restoring the previous song action presentation where necessary. Preserve T1–T3 behavior, all app-owned audio, and untracked working directories. Collection edits never invoke library audio removal.
+- **Final exact commands:**
+
+  ```sh
+  xcodebuild test -quiet -project vipod.xcodeproj -scheme vipod -destination 'platform=iOS Simulator,id=BB74B3A7-2E36-4733-A64D-2A67F425F526' -derivedDataPath '/var/folders/_8/xr5shfw97998zq57_jc38zlh0000gn/T/opencode/vipod-final-work' -resultBundlePath '/var/folders/_8/xr5shfw97998zq57_jc38zlh0000gn/T/opencode/vipod-order-green.xcresult' -only-testing:vipodTests/LibraryCollectionControllerTests -only-testing:vipodTests/ClassicPlayerLibraryOperationsTests -parallel-testing-enabled NO
+  xcodebuild test -quiet -project vipod.xcodeproj -scheme vipod -destination 'platform=iOS Simulator,id=BB74B3A7-2E36-4733-A64D-2A67F425F526' -derivedDataPath '/var/folders/_8/xr5shfw97998zq57_jc38zlh0000gn/T/opencode/vipod-final-work' -resultBundlePath '/var/folders/_8/xr5shfw97998zq57_jc38zlh0000gn/T/opencode/vipod-final-all.xcresult' -parallel-testing-enabled NO
+  xcodebuild build -quiet -project vipod.xcodeproj -scheme vipod -destination 'platform=macOS' -derivedDataPath '/var/folders/_8/xr5shfw97998zq57_jc38zlh0000gn/T/opencode/vipod-final-mac' CODE_SIGNING_ALLOWED=NO
+  ```
+- **Next step:** commit the verified T4 work unit and fast-forward the local `main` branch. Commit identity and closure will be recorded after the commit exists.
 
 ## Source allowance
 

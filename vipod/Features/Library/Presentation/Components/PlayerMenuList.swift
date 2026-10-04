@@ -9,39 +9,37 @@ struct PlayerMenuList: View {
     let titleForRow: (ClassicPlayerRow) -> String
     let subtitleForRow: (ClassicPlayerRow) -> String?
     let activate: (ClassicPlayerRow) -> Void
+    var selectRow: ((ClassicPlayerRow) -> Void)? = nil
     var playNext: (Track) -> Void = { _ in }
     var addLast: (Track) -> Void = { _ in }
+    var favorite: (Track) -> Void = { _ in }
+    var playlists: [LibraryPlaylist] = []
+    var addToPlaylist: (Track, UUID) -> Void = { _, _ in }
 
     var body: some View {
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(spacing: 0) {
                     ForEach(rows) { row in
-                        HStack(spacing: 4) {
-                            RetroMenuRow(
-                                title: titleForRow(row),
-                                subtitle: subtitleForRow(row) ?? row.subtitle,
-                                isSelected: row.id == selectedRowID,
-                                theme: theme,
-                                action: { activate(row) }
-                            )
-                            .disabled(row.id == "menu.import" && isImporting)
-                            .accessibilityIdentifier(row.id)
-                            if case .play(let track, _) = row.action {
-                                Menu {
-                                    Button(String(localized: "Play Next"), systemImage: "text.insert") { playNext(track) }
-                                        .accessibilityIdentifier("track.queueNext.\(track.id.uuidString)")
-                                    Button(String(localized: "Add to Queue"), systemImage: "text.append") { addLast(track) }
-                                        .accessibilityIdentifier("track.queueLast.\(track.id.uuidString)")
-                                } label: {
-                                    Image(systemName: "ellipsis.circle")
-                                        .frame(width: 40, height: 44)
-                                        .contentShape(Rectangle())
+                        RetroMenuRow(
+                            title: titleForRow(row),
+                            subtitle: subtitleForRow(row) ?? row.subtitle,
+                            isSelected: row.id == selectedRowID,
+                            theme: theme,
+                            action: {
+                                if case .play = row.action {
+                                    if row.id == selectedRowID {
+                                        activate(row)
+                                    } else {
+                                        (selectRow ?? activate)(row)
+                                    }
+                                } else {
+                                    activate(row)
                                 }
-                                .accessibilityLabel(String.localizedStringWithFormat(String(localized: "Actions for %@"), track.title))
-                                .accessibilityIdentifier("track.actions.\(track.id.uuidString)")
                             }
-                        }
+                        )
+                        .disabled(row.id == "menu.import" && isImporting)
+                        .accessibilityIdentifier(row.id)
                         .id(row.id)
                     }
                 }

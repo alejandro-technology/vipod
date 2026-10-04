@@ -17,8 +17,8 @@ final class ClassicPlayerMenuTests: XCTestCase {
         }
 
         model.navigation.push(.music)
-        XCTAssertEqual(model.rows.map(\.id), ["music.artists", "music.albums", "music.songs", "menu.import"])
-        for (id, destination) in [("music.artists", PlayerDestination.artists), ("music.albums", .albums), ("music.songs", .songs)] {
+        XCTAssertEqual(model.rows.map(\.id), ["music.artists", "music.albums", "music.songs", "music.playlists", "music.favorites", "menu.import"])
+        for (id, destination) in [("music.artists", PlayerDestination.artists), ("music.albums", .albums), ("music.songs", .songs), ("music.playlists", .playlists), ("music.favorites", .favorites)] {
             guard let row = model.rows.first(where: { $0.id == id }), case .open(let actual) = row.action else {
                 return XCTFail("Expected \(id) to open a destination")
             }

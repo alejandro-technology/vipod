@@ -12,6 +12,9 @@ public struct ClassicPlayerView: View {
     @AppStorage("vipod.theme") private var themePreference = "black"
     @State private var artworkImage: Image?
     @State private var showsImportFailures = false
+    @State private var collectionName = ""
+    @State private var showsPlaylistName = false
+    @State private var editingPlaylistID: UUID?
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.scenePhase) private var scenePhase
@@ -21,11 +24,12 @@ public struct ClassicPlayerView: View {
 
     public init(
         library: LibraryController,
+        collections: LibraryCollectionController? = nil,
         playback: PlaybackController,
         artworkLoader: @escaping ClassicArtworkLoader = { _ in nil },
         audioConnection: AudioConnectionMonitor? = nil
     ) {
-        _model = State(initialValue: ClassicPlayerModel(library: library, playback: playback, audioConnection: audioConnection))
+        _model = State(initialValue: ClassicPlayerModel(library: library, playback: playback, collections: collections, audioConnection: audioConnection))
         self.artworkLoader = artworkLoader
         self.audioConnection = audioConnection
     }
@@ -37,6 +41,7 @@ public struct ClassicPlayerView: View {
         ClassicPlayerSurface(
             theme: theme,
             screen: { display },
+            controls: { songActionsToolbar },
             browse: model.browse,
             select: model.selectPressed,
             menu: model.menuPressed,
@@ -139,9 +144,174 @@ public struct ClassicPlayerView: View {
             queueContent
         case .settings:
             settingsContent
+        case .playlists:
+            playlistsContent
+        case .playlist(let id):
+            playlistContent(id)
+        case .favorites:
+            favoritesContent
         default:
             listContent
         }
+    }
+
+    private var playlistsContent: some View {
+        VStack(spacing: 0) {
+            if !model.collections.hasLoaded {
+                collectionUnavailableView
+            } else {
+                if let error = model.collections.errorMessage { collectionErrorBanner(error) }
+                CollectionRowsView(
+                    rows: model.rows,
+                    selectedRowID: model.selectedRowID,
+                    theme: theme,
+                    emptyMessage: String(localized: "No playlists yet."),
+                    openIdentifier: { row in "playlist.open.\(row.id.replacingOccurrences(of: "playlist.", with: ""))" },
+                    activate: model.activate,
+                    actions: { row in
+                        guard case .open(.playlist(let id)) = row.action else { return AnyView(EmptyView()) }
+                        return AnyView(Menu {
+                            Button(String(localized: "Rename Playlist"), systemImage: "pencil") {
+                                editingPlaylistID = id
+                                collectionName = row.title
+                                showsPlaylistName = true
+                            }.accessibilityIdentifier("playlist.rename.\(id.uuidString)")
+                            Button(String(localized: "Delete Playlist"), systemImage: "trash", role: .destructive) {
+                                Task { await model.deletePlaylist(id: id) }
+                            }.accessibilityIdentifier("playlist.delete.\(id.uuidString)")
+                        } label: {
+                            Image(systemName: "ellipsis.circle").frame(width: 44, height: 44)
+                        }
+                        .accessibilityLabel(String.localizedStringWithFormat(String(localized: "Actions for %@"), row.title))
+                        .accessibilityIdentifier("playlist.actions.\(id.uuidString)"))
+                    },
+                    footerAction: CollectionAddition(title: String(localized: "Create Playlist"), identifier: "playlist.create") {
+                        editingPlaylistID = nil
+                        collectionName = ""
+                        showsPlaylistName = true
+                    }
+                )
+            }
+        }
+        .alert(editingPlaylistID == nil ? String(localized: "New Playlist") : String(localized: "Rename Playlist"), isPresented: $showsPlaylistName) {
+            TextField(String(localized: "Playlist Name"), text: $collectionName)
+            Button(String(localized: "Save")) {
+                let name = collectionName
+                if let id = editingPlaylistID { Task { await model.renamePlaylist(id: id, to: name) } }
+                else { Task { _ = await model.createPlaylist(named: name) } }
+            }
+            Button(String(localized: "Cancel"), role: .cancel) { }
+        }
+    }
+
+    private func playlistContent(_ id: UUID) -> some View {
+        let playlist = model.collections.catalog.playlists.first { $0.id == id }
+        return Group {
+            if !model.collections.hasLoaded {
+                collectionUnavailableView
+            } else if let playlist {
+                VStack(spacing: 0) {
+                    if let error = model.collections.errorMessage { collectionErrorBanner(error) }
+                    CollectionRowsView(
+                        rows: model.rows,
+                        selectedRowID: model.selectedRowID,
+                        theme: theme,
+                        emptyMessage: String(localized: "This playlist is empty."),
+                        openIdentifier: { "playlist.member.\($0.id.replacingOccurrences(of: "track.", with: ""))" },
+                        activate: model.activate,
+                        actions: { row in
+                        guard case .play(let track, _) = row.action,
+                              let index = playlist.trackIDs.firstIndex(of: track.id) else { return AnyView(EmptyView()) }
+                        return AnyView(Menu {
+                            Button(String(localized: "Move Up"), systemImage: "arrow.up") {
+                                Task { await model.movePlaylistTrack(playlistID: id, trackID: track.id, by: -1) }
+                            }
+                            .disabled(index == 0)
+                            .accessibilityIdentifier("playlist.moveUp.\(track.id.uuidString)")
+                            Button(String(localized: "Move Down"), systemImage: "arrow.down") {
+                                Task { await model.movePlaylistTrack(playlistID: id, trackID: track.id, by: 1) }
+                            }
+                            .disabled(index == playlist.trackIDs.count - 1)
+                            .accessibilityIdentifier("playlist.moveDown.\(track.id.uuidString)")
+                            Button(String(localized: "Remove from Playlist"), systemImage: "minus.circle", role: .destructive) {
+                                Task { await model.removeFromPlaylist(track.id, playlistID: id) }
+                            }
+                            .accessibilityIdentifier("playlist.remove.\(track.id.uuidString)")
+                        } label: {
+                            Image(systemName: "ellipsis.circle").frame(width: 44, height: 44)
+                        }
+                        .accessibilityLabel(String.localizedStringWithFormat(String(localized: "Actions for %@"), track.title))
+                        .accessibilityIdentifier("playlist.member.actions.\(track.id.uuidString)"))
+                        },
+                        additions: model.library.tracks.filter { !playlist.trackIDs.contains($0.id) }.map { track in
+                            CollectionAddition(title: String.localizedStringWithFormat(String(localized: "Add %@"), track.title), identifier: "playlist.add.\(track.id.uuidString)") {
+                                Task { await model.addToPlaylist(track.id, playlistID: id) }
+                            }
+                        }
+                    )
+                }
+            } else {
+                CollectionMessageView(message: String(localized: "This playlist is no longer available."), theme: theme)
+            }
+        }
+    }
+
+    private var favoritesContent: some View {
+        Group {
+            if !model.collections.hasLoaded {
+                collectionUnavailableView
+            } else {
+                VStack(spacing: 0) {
+                    if let error = model.collections.errorMessage { collectionErrorBanner(error) }
+                    CollectionRowsView(
+                        rows: model.rows,
+                        selectedRowID: model.selectedRowID,
+                        theme: theme,
+                        emptyMessage: String(localized: "No favorite songs yet."),
+                        openIdentifier: { "favorites.track.\($0.id.replacingOccurrences(of: "track.", with: ""))" },
+                        activate: model.activate,
+                        actions: { row in
+                        guard case .play(let track, _) = row.action else { return AnyView(EmptyView()) }
+                        return AnyView(Button(String(localized: "Remove Favorite"), systemImage: "heart.slash") {
+                            Task { await model.toggleFavorite(track.id) }
+                        }
+                        .labelStyle(.iconOnly)
+                        .frame(width: 44, height: 44)
+                        .accessibilityLabel(String(localized: "Remove Favorite"))
+                        .accessibilityValue(String(localized: "Favorite"))
+                        .accessibilityIdentifier("favorite.toggle.\(track.id.uuidString)"))
+                        }
+                    )
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var collectionUnavailableView: some View {
+        if let error = model.collections.errorMessage {
+            VStack(spacing: 8) {
+                Text(error).accessibilityIdentifier("collections.error")
+                Button(String(localized: "Retry")) { Task { await model.collections.load() } }
+                    .accessibilityIdentifier("collections.retry")
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else {
+            ProgressView(String(localized: "Loading Collections…"))
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+    }
+
+    private func collectionErrorBanner(_ message: String) -> some View {
+        HStack(spacing: 8) {
+            Text(message)
+                .font(.system(size: 11, weight: .medium))
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .accessibilityIdentifier("collections.error")
+            Button(String(localized: "Retry")) { Task { await model.collections.load() } }
+                .accessibilityIdentifier("collections.retry")
+        }
+        .padding(.horizontal, 10)
     }
 
     private var listContent: some View {
@@ -180,8 +350,12 @@ public struct ClassicPlayerView: View {
                 removeSelectedSong: model.requestSelectedTrackRemoval,
                 retryLoad: { Task { await model.retryLoad() } },
                 activate: model.activate,
+                selectRow: model.selectRow,
                 playNext: model.playNext,
-                addLast: model.addLast
+                addLast: model.addLast,
+                favorite: { track in Task { await model.toggleFavorite(track.id) } },
+                playlists: model.collections.catalog.playlists,
+                addToPlaylist: { track, playlistID in Task { await model.addToPlaylist(track.id, playlistID: playlistID) } }
             ),
             titleForRow: { $0.title },
             subtitleForRow: { $0.subtitle }
@@ -279,6 +453,43 @@ public struct ClassicPlayerView: View {
             model.importerCancelled()
         case .failure:
             model.importerFailed()
+        }
+    }
+
+    @ViewBuilder
+    private var songActionsToolbar: some View {
+        if model.shouldShowSongActions {
+            SongActionsToolbar(
+                selectedTrack: model.selectedSongTrack,
+                canRemove: model.canRemoveSelectedTrack,
+                isFavorite: model.isSelectedTrackFavorite,
+                playlists: model.collections.catalog.playlists,
+                theme: theme,
+                onPlayNext: {
+                    if let track = model.selectedSongTrack {
+                        model.playNext(track)
+                    }
+                },
+                onAddQueue: {
+                    if let track = model.selectedSongTrack {
+                        model.addLast(track)
+                    }
+                },
+                onToggleFavorite: {
+                    if let track = model.selectedSongTrack {
+                        Task { await model.toggleFavorite(track.id) }
+                    }
+                },
+                onAddToPlaylist: { playlistID in
+                    if let track = model.selectedSongTrack {
+                        Task { await model.addToPlaylist(track.id, playlistID: playlistID) }
+                    }
+                },
+                onRemove: {
+                    model.requestSelectedTrackRemoval()
+                }
+            )
+            .transition(.opacity)
         }
     }
 }

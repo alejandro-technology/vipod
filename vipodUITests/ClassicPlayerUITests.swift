@@ -73,10 +73,10 @@ final class ClassicPlayerUITests: XCTestCase {
         music.tap()
         app.buttons["music.songs"].tap()
 
-        app.buttons["track.actions.AAAAAAAA-0000-0000-0000-000000000003"].tap()
-        app.buttons["track.queueNext.AAAAAAAA-0000-0000-0000-000000000003"].tap()
-        app.buttons["track.actions.AAAAAAAA-0000-0000-0000-000000000002"].tap()
-        app.buttons["track.queueLast.AAAAAAAA-0000-0000-0000-000000000002"].tap()
+        app.buttons["track.AAAAAAAA-0000-0000-0000-000000000003"].tap()
+        app.buttons["track.action.playNext"].tap()
+        app.buttons["track.AAAAAAAA-0000-0000-0000-000000000002"].tap()
+        app.buttons["track.action.queueLast"].tap()
 
         let menu = app.buttons["wheel.menu"]
         menu.tap()
@@ -113,7 +113,164 @@ final class ClassicPlayerUITests: XCTestCase {
         app.buttons["wheel.menu"].tap()
         app.buttons["menu.music"].tap()
         app.buttons["music.songs"].tap()
-        XCTAssertTrue(app.buttons["track.actions.AAAAAAAA-0000-0000-0000-000000000003"].exists, "Removing from the queue must leave the library song intact.")
+        XCTAssertTrue(app.buttons["track.AAAAAAAA-0000-0000-0000-000000000003"].exists, "Removing from the queue must leave the library song intact.")
+    }
+
+    func testPlaylistAndFavoriteActionsPersistWithoutChangingPlaybackOrLibrary() {
+        let app = XCUIApplication()
+        app.launchArguments = ["--uitesting-library-fixture", "--uitesting-reset-library"]
+        app.launch()
+
+        let music = app.buttons["menu.music"]
+        XCTAssertTrue(music.waitForExistence(timeout: 20))
+        music.tap()
+        app.buttons["music.playlists"].tap()
+        app.buttons["playlist.create"].tap()
+        let name = app.alerts.textFields.firstMatch
+        XCTAssertTrue(name.waitForExistence(timeout: 5))
+        name.tap()
+        name.typeText("Road Trip")
+        app.alerts.buttons["Save"].firstMatch.tap()
+        let playlistButton = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "playlist.open.")).firstMatch
+        XCTAssertTrue(playlistButton.waitForExistence(timeout: 5))
+        let playlistID = String(playlistButton.identifier.dropFirst("playlist.open.".count))
+
+        app.buttons["playlist.actions.\(playlistID)"].tap()
+        let rename = app.buttons["playlist.rename.\(playlistID)"]
+        XCTAssertTrue(rename.waitForExistence(timeout: 5))
+        rename.tap()
+        let renamedField = app.alerts.textFields.firstMatch
+        XCTAssertTrue(renamedField.waitForExistence(timeout: 5))
+        renamedField.tap()
+        let existingName = renamedField.value as? String ?? ""
+        renamedField.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: existingName.count))
+        renamedField.typeText("Road Trip Renamed")
+        app.alerts.buttons["Save"].firstMatch.tap()
+        let renamedPlaylist = app.buttons["playlist.open.\(playlistID)"]
+        XCTAssertTrue(renamedPlaylist.waitForExistence(timeout: 5))
+        XCTAssertEqual(renamedPlaylist.label, "Road Trip Renamed")
+
+        renamedPlaylist.tap()
+        let alpha = app.buttons["playlist.add.AAAAAAAA-0000-0000-0000-000000000001"]
+        XCTAssertTrue(alpha.waitForExistence(timeout: 5))
+        alpha.tap()
+        let menu = app.buttons["wheel.menu"]
+        menu.tap()
+        menu.tap()
+        app.buttons["music.songs"].tap()
+
+        let betaID = "AAAAAAAA-0000-0000-0000-000000000002"
+        app.buttons["track.\(betaID)"].tap()
+        app.buttons["track.action.playlist"].tap()
+        app.buttons["track.addToPlaylist.\(playlistID)"].tap()
+        app.buttons["track.action.favorite"].tap()
+        app.buttons["track.action.favorite"].tap()
+        app.buttons["track.action.favorite"].tap()
+
+        menu.tap()
+        app.buttons["music.playlists"].tap()
+        app.buttons["playlist.open.\(playlistID)"].tap()
+        app.buttons["playlist.member.actions.AAAAAAAA-0000-0000-0000-000000000001"].tap()
+        app.buttons["playlist.moveDown.AAAAAAAA-0000-0000-0000-000000000001"].tap()
+        XCTAssertTrue(app.buttons["playlist.member.AAAAAAAA-0000-0000-0000-000000000002"].waitForExistence(timeout: 5))
+        XCTAssertEqual(playlistTrackOrder(in: app), ["Beta", "Alpha"])
+        app.buttons["playlist.member.actions.AAAAAAAA-0000-0000-0000-000000000001"].tap()
+        app.buttons["playlist.remove.AAAAAAAA-0000-0000-0000-000000000001"].tap()
+        XCTAssertEqual(playlistTrackOrder(in: app), ["Beta"])
+        XCTAssertTrue(app.staticTexts["Paused"].exists, "Collection edits must not change paused playback.")
+        menu.tap()
+        menu.tap()
+        menu.tap()
+        app.buttons["menu.nowPlaying"].tap()
+        XCTAssertEqual(app.staticTexts["nowPlaying.title"].label, "Alpha", "Collection edits must leave the paused current track unchanged.")
+        XCTAssertTrue(app.staticTexts["Paused"].exists)
+
+        app.terminate()
+        app.launchArguments = ["--uitesting-library-fixture"]
+        app.launch()
+        XCTAssertTrue(app.buttons["menu.music"].waitForExistence(timeout: 20))
+        app.buttons["menu.music"].tap()
+        app.buttons["music.playlists"].tap()
+        let restoredPlaylist = app.buttons["playlist.open.\(playlistID)"]
+        XCTAssertTrue(restoredPlaylist.waitForExistence(timeout: 5))
+        XCTAssertEqual(restoredPlaylist.label, "Road Trip Renamed")
+        restoredPlaylist.tap()
+        XCTAssertEqual(playlistTrackOrder(in: app), ["Beta"])
+        XCTAssertTrue(app.buttons["playlist.member.AAAAAAAA-0000-0000-0000-000000000002"].exists)
+        app.buttons["wheel.menu"].tap()
+        app.buttons["wheel.menu"].tap()
+        app.buttons["music.favorites"].tap()
+        XCTAssertTrue(app.buttons["favorites.track.\(betaID)"].waitForExistence(timeout: 5), "The favorite should persist after relaunch.")
+        app.buttons["favorite.toggle.\(betaID)"].tap()
+        XCTAssertFalse(app.buttons["favorites.track.\(betaID)"].exists, "Unmarking a favorite should remove it from Favorites.")
+        app.buttons["wheel.menu"].tap()
+        app.buttons["music.songs"].tap()
+        for trackID in ["AAAAAAAA-0000-0000-0000-000000000001", "AAAAAAAA-0000-0000-0000-000000000002", "AAAAAAAA-0000-0000-0000-000000000003"] {
+            XCTAssertTrue(app.buttons["track.\(trackID)"].exists, "Collection editing must leave every library song intact.")
+        }
+        app.buttons["wheel.menu"].tap()
+        app.buttons["wheel.menu"].tap()
+        app.buttons["menu.nowPlaying"].tap()
+        XCTAssertEqual(app.staticTexts["nowPlaying.title"].label, "Alpha", "The original paused current track should restore after collection edits.")
+        XCTAssertTrue(app.staticTexts["Paused"].exists, "Collection editing must leave playback paused after relaunch.")
+
+        app.buttons["wheel.menu"].tap()
+        app.buttons["menu.music"].tap()
+        app.buttons["music.playlists"].tap()
+        app.buttons["playlist.actions.\(playlistID)"].tap()
+        let delete = app.buttons["playlist.delete.\(playlistID)"]
+        XCTAssertTrue(delete.waitForExistence(timeout: 5))
+        delete.tap()
+        XCTAssertFalse(restoredPlaylist.exists)
+        XCTAssertTrue(app.staticTexts["Paused"].exists, "Deleting a playlist must not alter playback.")
+    }
+
+    func testSelectingPlaylistMemberStartsThatMemberRatherThanTheFirstTrack() {
+        let app = XCUIApplication()
+        app.launchArguments = ["--uitesting-library-fixture", "--uitesting-reset-library"]
+        app.launch()
+
+        XCTAssertTrue(app.buttons["menu.music"].waitForExistence(timeout: 20))
+        app.buttons["menu.music"].tap()
+        app.buttons["music.playlists"].tap()
+        app.buttons["playlist.create"].tap()
+        let name = app.alerts.textFields.firstMatch
+        XCTAssertTrue(name.waitForExistence(timeout: 5))
+        name.tap()
+        name.typeText("Selection Test")
+        app.alerts.buttons["Save"].firstMatch.tap()
+
+        let playlist = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "playlist.open.")).firstMatch
+        XCTAssertTrue(playlist.waitForExistence(timeout: 5))
+        playlist.tap()
+        app.buttons["playlist.add.AAAAAAAA-0000-0000-0000-000000000001"].tap()
+        app.buttons["playlist.add.AAAAAAAA-0000-0000-0000-000000000002"].tap()
+        let betaMember = app.buttons["playlist.member.AAAAAAAA-0000-0000-0000-000000000002"]
+        XCTAssertTrue(betaMember.waitForExistence(timeout: 5))
+        let wheel = app.descendants(matching: .any).matching(identifier: "wheel").firstMatch
+        XCTAssertTrue(wheel.exists)
+        let start = wheel.coordinate(withNormalizedOffset: CGVector(dx: 0.50, dy: 0.24))
+        let end = wheel.coordinate(withNormalizedOffset: CGVector(dx: 0.78, dy: 0.22))
+        start.press(forDuration: 0.1, thenDragTo: end)
+        XCTAssertEqual(betaMember.value as? String, "Selected", "Wheel browsing should highlight the corresponding playlist member.")
+        app.buttons["wheel.select"].tap()
+
+        let playingTitle = app.staticTexts["nowPlaying.title"]
+        XCTAssertTrue(playingTitle.waitForExistence(timeout: 5), "Selecting Beta from a playlist should return to Now Playing.")
+        XCTAssertEqual(playingTitle.label, "Beta", "Selecting Beta from a playlist should make Beta the current track.")
+    }
+
+    private func playlistTrackOrder(in app: XCUIApplication) -> [String] {
+        let titles = [
+            "AAAAAAAA-0000-0000-0000-000000000001": "Alpha",
+            "AAAAAAAA-0000-0000-0000-000000000002": "Beta",
+            "AAAAAAAA-0000-0000-0000-000000000003": "Gamma"
+        ]
+        return app.buttons.allElementsBoundByIndex.compactMap { button in
+            guard button.identifier.hasPrefix("playlist.member."),
+                  let title = titles[String(button.identifier.dropFirst("playlist.member.".count))] else { return nil }
+            return title
+        }
     }
 
     private func queueOrder(in app: XCUIApplication) -> [String] {

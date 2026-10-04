@@ -1,9 +1,10 @@
 import SwiftUI
 
-/// Responsive black body composition with a classic LCD above the broad wheel.
-public struct ClassicPlayerSurface<ScreenContent: View>: View {
+/// Responsive black body composition with a classic LCD above the broad wheel and optional auxiliary controls.
+public struct ClassicPlayerSurface<ScreenContent: View, ControlsContent: View>: View {
     public var theme: iPodTheme
     public var screenContent: ScreenContent
+    public var controlsContent: ControlsContent
     public var browse: (Int) -> Void
     public var select: () -> Void
     public var menu: () -> Void
@@ -16,6 +17,7 @@ public struct ClassicPlayerSurface<ScreenContent: View>: View {
         theme: iPodTheme = .classicBlack,
         wheelAccessibilityID: String = "wheel",
         @ViewBuilder screen: () -> ScreenContent,
+        @ViewBuilder controls: () -> ControlsContent,
         browse: @escaping (Int) -> Void,
         select: @escaping () -> Void,
         menu: @escaping () -> Void,
@@ -26,6 +28,7 @@ public struct ClassicPlayerSurface<ScreenContent: View>: View {
         self.theme = theme
         self.wheelAccessibilityID = wheelAccessibilityID
         self.screenContent = screen()
+        self.controlsContent = controls()
         self.browse = browse
         self.select = select
         self.menu = menu
@@ -48,7 +51,11 @@ public struct ClassicPlayerSurface<ScreenContent: View>: View {
                 if compactLandscape {
                     HStack(spacing: 8) {
                         display(width: contentWidth * 0.54, height: proxy.size.height * 0.9)
-                        wheel(side: min(proxy.size.height * 0.94, contentWidth * 0.40))
+                        VStack(spacing: 8) {
+                            controlsContent
+                                .frame(maxWidth: min(proxy.size.height * 0.94, contentWidth * 0.40))
+                            wheel(side: min(proxy.size.height * 0.94, contentWidth * 0.40))
+                        }
                     }
                 } else {
                     VStack(spacing: 0) {
@@ -57,8 +64,14 @@ public struct ClassicPlayerSurface<ScreenContent: View>: View {
                         // theme's diameter fraction. Give it a full-width square here so
                         // that inset is applied only once, then center it in the space
                         // left below the display.
-                        wheel(side: min(contentWidth, proxy.size.height * 0.62), alignment: .center)
-                            .frame(maxHeight: .infinity, alignment: .center)
+                        ZStack(alignment: .top) {
+                            wheel(side: min(contentWidth, proxy.size.height * 0.62), alignment: .center)
+                                .frame(maxHeight: .infinity, alignment: .center)
+
+                            controlsContent
+                                .frame(width: contentWidth * 0.88)
+                                .padding(.top, 10)
+                        }
                     }
                 }
             }
@@ -89,5 +102,32 @@ public struct ClassicPlayerSurface<ScreenContent: View>: View {
         )
         .frame(width: side, height: side)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: alignment)
+    }
+}
+
+extension ClassicPlayerSurface where ControlsContent == EmptyView {
+    public init(
+        theme: iPodTheme = .classicBlack,
+        wheelAccessibilityID: String = "wheel",
+        @ViewBuilder screen: () -> ScreenContent,
+        browse: @escaping (Int) -> Void,
+        select: @escaping () -> Void,
+        menu: @escaping () -> Void,
+        playPause: @escaping () -> Void,
+        next: @escaping () -> Void,
+        previous: @escaping () -> Void
+    ) {
+        self.init(
+            theme: theme,
+            wheelAccessibilityID: wheelAccessibilityID,
+            screen: screen,
+            controls: { EmptyView() },
+            browse: browse,
+            select: select,
+            menu: menu,
+            playPause: playPause,
+            next: next,
+            previous: previous
+        )
     }
 }

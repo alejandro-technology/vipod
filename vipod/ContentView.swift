@@ -17,6 +17,7 @@ struct ContentView: View {
             if let dependencies {
                 ClassicPlayerView(
                     library: dependencies.library,
+                    collections: dependencies.collections,
                     playback: dependencies.playback,
                     artworkLoader: dependencies.artworkLoader,
                     audioConnection: dependencies.audioConnection

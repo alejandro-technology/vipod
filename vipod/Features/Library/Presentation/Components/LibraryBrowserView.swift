@@ -29,8 +29,12 @@ struct LibraryBrowserActions {
     let removeSelectedSong: () -> Void
     let retryLoad: () -> Void
     let activate: (ClassicPlayerRow) -> Void
+    var selectRow: (ClassicPlayerRow) -> Void = { _ in }
     var playNext: (Track) -> Void = { _ in }
     var addLast: (Track) -> Void = { _ in }
+    var favorite: (Track) -> Void = { _ in }
+    var playlists: [LibraryPlaylist] = []
+    var addToPlaylist: (Track, UUID) -> Void = { _, _ in }
 }
 
 struct LibraryBrowserView: View {
@@ -88,22 +92,6 @@ struct LibraryBrowserView: View {
                 .font(.system(size: 13))
                 .textFieldStyle(.plain)
                 .accessibilityLabel(String(localized: "Filter music"))
-            if presentation.isSongs {
-                Button(action: actions.removeSelectedSong) {
-                    Image(systemName: "trash.fill")
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(presentation.canRemoveSelectedTrack ? Color.red : presentation.theme.palette.secondaryText)
-                        .frame(width: 44, height: 44)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .disabled(!presentation.canRemoveSelectedTrack)
-                .accessibilityIdentifier("library.remove")
-                .accessibilityLabel(presentation.selectedRowTitle.map {
-                    String.localizedStringWithFormat(String(localized: "Remove %@"), $0)
-                } ?? String(localized: "Remove selected song"))
-                .accessibilityValue(presentation.selectedRowTitle ?? String(localized: "No song selected"))
-            }
         }
         .padding(.horizontal, 10)
         .frame(minHeight: 38)
@@ -120,8 +108,12 @@ struct LibraryBrowserView: View {
             titleForRow: titleForRow,
             subtitleForRow: subtitleForRow,
             activate: actions.activate,
+            selectRow: actions.selectRow,
             playNext: actions.playNext,
-            addLast: actions.addLast
+            addLast: actions.addLast,
+            favorite: actions.favorite,
+            playlists: actions.playlists,
+            addToPlaylist: actions.addToPlaylist
         )
     }
 

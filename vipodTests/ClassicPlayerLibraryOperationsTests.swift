@@ -163,6 +163,58 @@ final class ClassicPlayerLibraryOperationsTests: XCTestCase {
         XCTAssertEqual(model.rows.map(\.title), ["Fresh"])
     }
 
+    func testStartupPreservesPersistedCollectionsAndDoesNotRewriteUnchangedCatalog() async throws {
+        let first = track("First")
+        let playlist = LibraryPlaylist(name: "Saved", trackIDs: [first.id])
+        let catalog = LibraryCollectionCatalog(playlists: [playlist], favoriteTrackIDs: [first.id])
+        let store = OperationsCollectionStore(catalog: catalog)
+        let collections = LibraryCollectionController(store: store)
+        let model = ClassicPlayerModel(library: LibraryController(repository: OperationsRepository(tracks: [first])),
+                                      playback: PlaybackController(engine: OperationsPlayback()), collections: collections)
+
+        await model.start()
+
+        XCTAssertEqual(collections.catalog, catalog, "Cold launch must load before any collection save.")
+        let saved = await store.currentCatalog()
+        let saves = await store.saveCount()
+        XCTAssertEqual(saved, catalog)
+        XCTAssertEqual(saves, 0, "An unchanged load must not rewrite durable data.")
+    }
+
+    func testPartialImportMakesSuccessfulTracksAvailableToCollections() async throws {
+        let old = track("Old")
+        let added = track("Added")
+        let repository = OperationsRepository(tracks: [old])
+        let collections = LibraryCollectionController(store: OperationsCollectionStore())
+        let model = ClassicPlayerModel(library: LibraryController(repository: repository),
+                                      playback: PlaybackController(engine: OperationsPlayback()), collections: collections)
+        await model.start()
+        let createdID = await model.createPlaylist(named: "Imported")
+        let playlistID = try XCTUnwrap(createdID)
+        await repository.configureImport(report: TrackImportReport(imported: [added], failures: [.init(filename: "bad.mp3", message: "Invalid")]), tracksAfterImport: [old, added])
+
+        await model.importFiles(from: [URL(fileURLWithPath: "/tmp/partial.mp3")])
+        await model.addToPlaylist(added.id, playlistID: playlistID)
+        await model.toggleFavorite(added.id)
+
+        XCTAssertEqual(collections.catalog.playlists.first?.trackIDs, [added.id])
+        XCTAssertTrue(collections.catalog.favoriteTrackIDs.contains(added.id))
+    }
+
+    func testCollectionLoadFailureCanRetryWithoutLosingSavedMembership() async {
+        let first = track("First")
+        let saved = LibraryCollectionCatalog(playlists: [.init(name: "Saved", trackIDs: [first.id])])
+        let store = OperationsCollectionStore(catalog: saved, loadFailures: 1)
+        let collections = LibraryCollectionController(store: store)
+        let model = ClassicPlayerModel(library: LibraryController(repository: OperationsRepository(tracks: [first])),
+                                      playback: PlaybackController(engine: OperationsPlayback()), collections: collections)
+        await model.start()
+        XCTAssertNotNil(collections.errorMessage)
+        await model.retryLoad()
+        XCTAssertNil(collections.errorMessage)
+        XCTAssertEqual(collections.catalog, saved)
+    }
+
     private func track(_ title: String, artist: String = "Artist", album: String = "Album") -> Track {
         Track(title: title, artist: artist, album: album, audioFilename: "\(title).mp3")
     }
@@ -212,6 +264,23 @@ private actor OperationsRepository: TrackRepository {
 }
 
 private enum RepositoryError: Error { case failed }
+
+private actor OperationsCollectionStore: LibraryCollectionStore {
+    private var catalog: LibraryCollectionCatalog
+    private var loadFailures: Int
+    private var saves = 0
+    init(catalog: LibraryCollectionCatalog = .init(), loadFailures: Int = 0) {
+        self.catalog = catalog
+        self.loadFailures = loadFailures
+    }
+    func load() async throws -> LibraryCollectionCatalog {
+        if loadFailures > 0 { loadFailures -= 1; throw RepositoryError.failed }
+        return catalog
+    }
+    func save(_ catalog: LibraryCollectionCatalog) async throws { self.catalog = catalog; saves += 1 }
+    func currentCatalog() -> LibraryCollectionCatalog { catalog }
+    func saveCount() -> Int { saves }
+}
 
 private actor OperationsSessionStore: PlaybackSessionStore {
     private var stored: PlaybackSession?
