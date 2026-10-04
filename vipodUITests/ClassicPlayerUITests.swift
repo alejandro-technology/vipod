@@ -371,6 +371,7 @@ final class ClassicPlayerUITests: XCTestCase {
     }
 
     private func assertNeighborsFitAndAlign(_ previous: XCUIElement, _ next: XCUIElement, in display: XCUIElement) {
+        let expectedFooterBottomInset: CGFloat = 6
         XCTAssertTrue(previous.isHittable)
         XCTAssertTrue(next.isHittable)
         XCTAssertGreaterThanOrEqual(previous.frame.minX, display.frame.minX)
@@ -381,5 +382,9 @@ final class ClassicPlayerUITests: XCTestCase {
         XCTAssertGreaterThanOrEqual(next.frame.minY, display.frame.minY)
         XCTAssertLessThanOrEqual(next.frame.maxY, display.frame.maxY)
         XCTAssertEqual(previous.frame.maxY, next.frame.maxY, accuracy: 2)
+        XCTAssertEqual(previous.frame.maxY, display.frame.maxY - expectedFooterBottomInset, accuracy: 1,
+                       "Previous should honor the pinned footer's 6-point bottom inset.")
+        XCTAssertEqual(next.frame.maxY, display.frame.maxY - expectedFooterBottomInset, accuracy: 1,
+                       "Next should honor the pinned footer's 6-point bottom inset.")
     }
 }

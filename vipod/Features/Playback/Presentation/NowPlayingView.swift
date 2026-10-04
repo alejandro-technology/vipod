@@ -16,7 +16,7 @@ struct NowPlayingView: View {
     let onRetry: () -> Void
 
     var body: some View {
-        GeometryReader { proxy in
+        VStack(spacing: 6) {
             ScrollView {
                 VStack(spacing: 6) {
                     HStack(spacing: 10) {
@@ -81,18 +81,20 @@ struct NowPlayingView: View {
                             .font(.system(size: 10, weight: .semibold))
                             .accessibilityHint(String(localized: "Retry playing the current track"))
                     }
-                    Spacer(minLength: 4)
-                    HStack(alignment: .bottom, spacing: 10) {
-                        neighborBlock(track: previousTrack, title: String(localized: "Previous"), alignment: .leading, identifier: "nowPlaying.previous")
-                        neighborBlock(track: nextTrack, title: String(localized: "Next"), alignment: .trailing, identifier: "nowPlaying.next")
-                    }
-                    .padding(.horizontal, 10)
                 }
-                .frame(maxWidth: .infinity, minHeight: proxy.size.height, alignment: .top)
+                .frame(maxWidth: .infinity, alignment: .top)
             }
             .scrollIndicators(.hidden)
+            .frame(maxHeight: .infinity)
+
+            HStack(alignment: .bottom, spacing: 8) {
+                neighborBlock(track: previousTrack, title: String(localized: "Previous"), alignment: .leading, identifier: "nowPlaying.previous")
+                neighborBlock(track: nextTrack, title: String(localized: "Next"), alignment: .trailing, identifier: "nowPlaying.next")
+            }
+            .padding(.horizontal, 10)
+            .padding(.bottom, 6)
         }
-        .padding(.vertical, 5)
+        .padding(.top, 5)
     }
 
     private func neighborBlock(track: Track?, title: String, alignment: HorizontalAlignment, identifier: String) -> some View {
