@@ -36,7 +36,7 @@ Delivery strategy is `auto-chain`, with `chain_strategy: feature-branch-chain`. 
 - [x] T2 persists and safely restores the complete playback session after library load, paused and without autoplay; durable saves are serialized and progress/lifecycle flushes are reasonable.
 - [x] T3 provides accessible queue play-next, add-last, move, and remove workflows without removing tracks from the library.
 - [x] T4 provides accessible iPod-style persistent named playlist create/rename/delete/add/remove/reorder and persistent favorites; library-deletion reconciliation never deletes audio.
-- [ ] Every task delivers implementation, relevant tests, and a short README update as one work unit.
+- [x] Every task delivers implementation, relevant tests, and a short README update as one work unit.
 - [x] Existing baseline behavior remains green; final full test suite, macOS build, and `git diff --check` pass.
 
 ## Work units
@@ -74,7 +74,7 @@ Delivery strategy is `auto-chain`, with `chain_strategy: feature-branch-chain`. 
 - [x] Inspect library deletion/reconciliation and existing navigation/accessibility patterns before implementation.
 - [x] Deliver persistent named playlists with create/rename/delete/add/remove/reorder and persistent favorites through accessible iPod-style workflows.
 - [x] Reconcile deleted library tracks from collections without deleting audio when collections are modified.
-- [ ] Add behavior-first tests, short README update, evidence, and one coherent work-unit commit.
+- [x] Add behavior-first tests, short README update, evidence, and one coherent work-unit commit. T4 committed as `60bf1ff` (`feat(library): add durable playlists and favorites`).
 
 ## Delegation and implementation protocol
 
@@ -136,7 +136,8 @@ Also run `git diff --check`.
   xcodebuild test -quiet -project vipod.xcodeproj -scheme vipod -destination 'platform=iOS Simulator,id=BB74B3A7-2E36-4733-A64D-2A67F425F526' -derivedDataPath '/var/folders/_8/xr5shfw97998zq57_jc38zlh0000gn/T/opencode/vipod-final-work' -resultBundlePath '/var/folders/_8/xr5shfw97998zq57_jc38zlh0000gn/T/opencode/vipod-final-all.xcresult' -parallel-testing-enabled NO
   xcodebuild build -quiet -project vipod.xcodeproj -scheme vipod -destination 'platform=macOS' -derivedDataPath '/var/folders/_8/xr5shfw97998zq57_jc38zlh0000gn/T/opencode/vipod-final-mac' CODE_SIGNING_ALLOWED=NO
   ```
-- **Next step:** commit the verified T4 work unit and fast-forward the local `main` branch. Commit identity and closure will be recorded after the commit exists.
+- **T4 commit and slice boundary:** `60bf1ff` (`feat(library): add durable playlists and favorites`), against `cc6bf8f`; 21 paths, 1527 additions / 66 deletions. This cohesive collections/UI/testing slice exceeds the advisory 400-line budget; substantive tests and existing UI work were retained rather than compressed. The feature-branch chain contains T1 `a151be3`, T2 `c18092c`, T3 `cc6bf8f`, and T4 `60bf1ff`.
+- **Closure:** all four work units are implemented, committed, and verified. The authorized local integration target is `main`; no remote workflow is part of this task. Verification evidence and the README accompany the implementation, and the historical TDD/test limitations remain recorded above.
 
 ## Source allowance
 
