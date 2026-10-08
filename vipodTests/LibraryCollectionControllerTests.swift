@@ -62,6 +62,62 @@ final class LibraryCollectionControllerTests: XCTestCase {
         XCTAssertNotNil(controller.errorMessage)
     }
 
+    func testPresentationSelectionTracksPlaylistReorderAndChoosesNeighborAfterRemoval() async throws {
+        let tracks = [makeTrack("A"), makeTrack("B"), makeTrack("C")]
+        let library = LibraryController(repository: CollectionTestRepository(tracks: tracks))
+        await library.load()
+        let collections = LibraryCollectionController(store: CollectionMemoryStore(), tracks: tracks)
+        await collections.load()
+        let createdPlaylistID = await collections.createPlaylist(named: "Selection")
+        let playlistID = try XCTUnwrap(createdPlaylistID)
+        for track in tracks { await collections.addTrack(track.id, toPlaylist: playlistID) }
+
+        let model = ClassicPlayerModel(library: library, playback: PlaybackController(engine: CollectionTestPlayback()), collections: collections)
+        model.navigation.push(.playlist(id: playlistID))
+        model.selectRow(model.rows[1])
+        await model.movePlaylistTrack(playlistID: playlistID, trackID: tracks[1].id, by: 1)
+        XCTAssertEqual(model.selectedSongTrack?.id, tracks[1].id, "Reordering must preserve the selected track identity.")
+
+        await model.removeFromPlaylist(tracks[1].id, playlistID: playlistID)
+        XCTAssertEqual(model.selectedSongTrack?.id, tracks[2].id, "Removing the selected member should select the adjacent surviving row.")
+    }
+
+    func testPlaylistListingSelectionSurvivesRenameAndMovesToNeighborAfterDeletion() async throws {
+        let library = LibraryController(repository: CollectionTestRepository(tracks: []))
+        await library.load()
+        let collections = LibraryCollectionController(store: CollectionMemoryStore())
+        await collections.load()
+        let createdFirst = await collections.createPlaylist(named: "First")
+        let createdSecond = await collections.createPlaylist(named: "Second")
+        let first = try XCTUnwrap(createdFirst)
+        let second = try XCTUnwrap(createdSecond)
+        let model = ClassicPlayerModel(library: library, playback: PlaybackController(engine: CollectionTestPlayback()), collections: collections)
+        model.navigation.push(.playlists)
+        model.selectRow(try XCTUnwrap(model.rows.first))
+
+        await model.renamePlaylist(id: first, to: "Renamed")
+        XCTAssertEqual(model.selectedRowID, "playlist.\(first.uuidString)", "Rename must preserve the selected playlist identity.")
+        await model.deletePlaylist(id: first)
+        XCTAssertEqual(model.selectedRowID, "playlist.\(second.uuidString)", "Deleting the selected playlist should select the neighboring playlist.")
+    }
+
+    func testOpeningPlaylistSongPickerResetsSelectionForItsFilteredRows() async throws {
+        let tracks = [makeTrack("A"), makeTrack("B"), makeTrack("C"), makeTrack("D")]
+        let library = LibraryController(repository: CollectionTestRepository(tracks: tracks))
+        await library.load()
+        let playlist = LibraryPlaylist(name: "Picker", trackIDs: [tracks[0].id, tracks[2].id])
+        let collections = LibraryCollectionController(store: CollectionMemoryStore(), tracks: tracks, catalog: .init(playlists: [playlist]))
+        let model = ClassicPlayerModel(library: library, playback: PlaybackController(engine: CollectionTestPlayback()), collections: collections)
+        model.navigation.push(.playlist(id: playlist.id))
+        model.selectRow(model.rows[1])
+
+        model.openPlaylistSongPicker(for: playlist.id)
+
+        XCTAssertEqual(model.navigation.currentDestination, .playlistSongPicker(id: playlist.id))
+        XCTAssertEqual(model.rows.map(\.title), ["B", "D"])
+        XCTAssertEqual(model.selectedRow?.title, "B", "Picker selection should start at its first available row, not a stale member index.")
+    }
+
     func testFileStoreRoundTripsAndMissingFileLoadsEmptyCatalog() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         defer { try? FileManager.default.removeItem(at: root) }

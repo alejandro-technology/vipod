@@ -152,6 +152,10 @@ final class ClassicPlayerUITests: XCTestCase {
         queue.tap()
 
         XCTAssertTrue(queueTrack("Alpha", in: app).waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["queue.moveUp"].exists)
+        XCTAssertFalse(app.buttons["queue.moveUp"].isEnabled, "The first queue item cannot move up.")
+        XCTAssertGreaterThan(app.buttons["queue.moveUp"].frame.minY, app.descendants(matching: .any)["classic.display"].frame.maxY,
+                             "Queue operations belong below the LCD.")
         XCTAssertEqual(queueOrder(in: app), ["Alpha", "Gamma", "Beta"])
         XCTAssertEqual(queueTrack("Alpha", in: app).value as? String, "Now Playing")
         XCTAssertEqual(app.staticTexts["Paused"].exists, true)
@@ -191,6 +195,10 @@ final class ClassicPlayerUITests: XCTestCase {
         XCTAssertTrue(music.waitForExistence(timeout: 20))
         music.tap()
         app.buttons["music.playlists"].tap()
+        let display = app.descendants(matching: .any)["classic.display"]
+        let createPlaylist = app.buttons["playlist.create"]
+        XCTAssertTrue(createPlaylist.isEnabled, "Playlist creation must work while the playlist list is empty.")
+        XCTAssertGreaterThan(createPlaylist.frame.minY, display.frame.maxY, "Playlist actions belong below the LCD.")
         app.buttons["playlist.create"].tap()
         let name = app.alerts.textFields.firstMatch
         XCTAssertTrue(name.waitForExistence(timeout: 5))
@@ -201,8 +209,8 @@ final class ClassicPlayerUITests: XCTestCase {
         XCTAssertTrue(playlistButton.waitForExistence(timeout: 5))
         let playlistID = String(playlistButton.identifier.dropFirst("playlist.open.".count))
 
-        app.buttons["playlist.actions.\(playlistID)"].tap()
-        let rename = app.buttons["playlist.rename.\(playlistID)"]
+        app.buttons["playlist.open.\(playlistID)"].tap()
+        let rename = app.buttons["playlist.rename"]
         XCTAssertTrue(rename.waitForExistence(timeout: 5))
         rename.tap()
         let renamedField = app.alerts.textFields.firstMatch
@@ -217,10 +225,15 @@ final class ClassicPlayerUITests: XCTestCase {
         XCTAssertEqual(renamedPlaylist.label, "Road Trip Renamed")
 
         renamedPlaylist.tap()
-        let alpha = app.buttons["playlist.add.AAAAAAAA-0000-0000-0000-000000000001"]
+        app.buttons["wheel.select"].tap()
+        XCTAssertGreaterThan(app.buttons["playlist.addSongs"].frame.minY, display.frame.maxY, "Playlist-member actions belong below the LCD.")
+        app.buttons["playlist.addSongs"].tap()
+        let alpha = app.buttons["playlist.picker.AAAAAAAA-0000-0000-0000-000000000001"]
         XCTAssertTrue(alpha.waitForExistence(timeout: 5))
         alpha.tap()
+        app.buttons["wheel.select"].tap()
         let menu = app.buttons["wheel.menu"]
+        menu.tap()
         menu.tap()
         menu.tap()
         app.buttons["music.songs"].tap()
@@ -236,12 +249,13 @@ final class ClassicPlayerUITests: XCTestCase {
         menu.tap()
         app.buttons["music.playlists"].tap()
         app.buttons["playlist.open.\(playlistID)"].tap()
-        app.buttons["playlist.member.actions.AAAAAAAA-0000-0000-0000-000000000001"].tap()
-        app.buttons["playlist.moveDown.AAAAAAAA-0000-0000-0000-000000000001"].tap()
+        app.buttons["wheel.select"].tap()
+        app.buttons["playlist.member.AAAAAAAA-0000-0000-0000-000000000001"].tap()
+        app.buttons["playlist.moveDown"].tap()
         XCTAssertTrue(app.buttons["playlist.member.AAAAAAAA-0000-0000-0000-000000000002"].waitForExistence(timeout: 5))
         XCTAssertEqual(playlistTrackOrder(in: app), ["Beta", "Alpha"])
-        app.buttons["playlist.member.actions.AAAAAAAA-0000-0000-0000-000000000001"].tap()
-        app.buttons["playlist.remove.AAAAAAAA-0000-0000-0000-000000000001"].tap()
+        app.buttons["playlist.member.AAAAAAAA-0000-0000-0000-000000000001"].tap()
+        app.buttons["playlist.remove"].tap()
         XCTAssertEqual(playlistTrackOrder(in: app), ["Beta"])
         XCTAssertTrue(app.staticTexts["Paused"].exists, "Collection edits must not change paused playback.")
         menu.tap()
@@ -261,13 +275,17 @@ final class ClassicPlayerUITests: XCTestCase {
         XCTAssertTrue(restoredPlaylist.waitForExistence(timeout: 5))
         XCTAssertEqual(restoredPlaylist.label, "Road Trip Renamed")
         restoredPlaylist.tap()
+        app.buttons["wheel.select"].tap()
         XCTAssertEqual(playlistTrackOrder(in: app), ["Beta"])
         XCTAssertTrue(app.buttons["playlist.member.AAAAAAAA-0000-0000-0000-000000000002"].exists)
         app.buttons["wheel.menu"].tap()
         app.buttons["wheel.menu"].tap()
         app.buttons["music.favorites"].tap()
         XCTAssertTrue(app.buttons["favorites.track.\(betaID)"].waitForExistence(timeout: 5), "The favorite should persist after relaunch.")
-        app.buttons["favorite.toggle.\(betaID)"].tap()
+        app.buttons["favorites.track.\(betaID)"].tap()
+        XCTAssertGreaterThan(app.buttons["favorite.toggle"].frame.minY, app.descendants(matching: .any)["classic.display"].frame.maxY,
+                             "Favorite actions belong below the LCD.")
+        app.buttons["favorite.toggle"].tap()
         XCTAssertFalse(app.buttons["favorites.track.\(betaID)"].exists, "Unmarking a favorite should remove it from Favorites.")
         app.buttons["wheel.menu"].tap()
         app.buttons["music.songs"].tap()
@@ -283,8 +301,8 @@ final class ClassicPlayerUITests: XCTestCase {
         app.buttons["wheel.menu"].tap()
         app.buttons["menu.music"].tap()
         app.buttons["music.playlists"].tap()
-        app.buttons["playlist.actions.\(playlistID)"].tap()
-        let delete = app.buttons["playlist.delete.\(playlistID)"]
+        app.buttons["playlist.open.\(playlistID)"].tap()
+        let delete = app.buttons["playlist.delete"]
         XCTAssertTrue(delete.waitForExistence(timeout: 5))
         delete.tap()
         XCTAssertFalse(restoredPlaylist.exists)
@@ -309,8 +327,16 @@ final class ClassicPlayerUITests: XCTestCase {
         let playlist = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "playlist.open.")).firstMatch
         XCTAssertTrue(playlist.waitForExistence(timeout: 5))
         playlist.tap()
-        app.buttons["playlist.add.AAAAAAAA-0000-0000-0000-000000000001"].tap()
-        app.buttons["playlist.add.AAAAAAAA-0000-0000-0000-000000000002"].tap()
+        app.buttons["wheel.select"].tap()
+        app.buttons["playlist.addSongs"].tap()
+        let pickerAlpha = app.buttons["playlist.picker.AAAAAAAA-0000-0000-0000-000000000001"]
+        pickerAlpha.tap()
+        XCTAssertTrue(app.buttons["playlist.addSelectedSong"].isEnabled)
+        app.buttons["playlist.addSelectedSong"].tap()
+        let pickerBeta = app.buttons["playlist.picker.AAAAAAAA-0000-0000-0000-000000000002"]
+        pickerBeta.tap()
+        app.buttons["wheel.select"].tap()
+        app.buttons["wheel.menu"].tap()
         let betaMember = app.buttons["playlist.member.AAAAAAAA-0000-0000-0000-000000000002"]
         XCTAssertTrue(betaMember.waitForExistence(timeout: 5))
         let wheel = app.descendants(matching: .any).matching(identifier: "wheel").firstMatch
@@ -324,6 +350,68 @@ final class ClassicPlayerUITests: XCTestCase {
         let playingTitle = app.staticTexts["nowPlaying.title"]
         XCTAssertTrue(playingTitle.waitForExistence(timeout: 5), "Selecting Beta from a playlist should return to Now Playing.")
         XCTAssertEqual(playingTitle.label, "Beta", "Selecting Beta from a playlist should make Beta the current track.")
+
+        app.buttons["wheel.playPause"].tap()
+        app.buttons["wheel.menu"].tap()
+        let alphaMember = app.buttons["playlist.member.AAAAAAAA-0000-0000-0000-000000000001"]
+        let betaMemberAfterPause = app.buttons["playlist.member.AAAAAAAA-0000-0000-0000-000000000002"]
+        let activeTrackBrowseStart = wheel.coordinate(withNormalizedOffset: CGVector(dx: 0.50, dy: 0.24))
+        let activeTrackBrowseEnd = wheel.coordinate(withNormalizedOffset: CGVector(dx: 0.78, dy: 0.22))
+        activeTrackBrowseStart.press(forDuration: 0.1, thenDragTo: activeTrackBrowseEnd)
+        XCTAssertEqual(betaMemberAfterPause.value as? String, "Selected", "Wheel drag should browse the collection while playback is paused.")
+        XCTAssertTrue(alphaMember.exists)
+        XCTAssertTrue(app.staticTexts["Paused"].exists)
+        app.buttons["wheel.menu"].tap()
+        app.buttons["wheel.menu"].tap()
+        app.buttons["wheel.menu"].tap()
+        app.buttons["menu.nowPlaying"].tap()
+        XCTAssertEqual(app.staticTexts["nowPlaying.title"].label, "Beta", "Rotary browsing must not change the paused current track.")
+    }
+
+    func testLongListsFollowWheelSelectionAndQueueReorder() {
+        let app = XCUIApplication()
+        app.launchArguments = ["--uitesting-library-fixture", "--uitesting-reset-library", "--uitesting-long-list-fixture"]
+        app.launch()
+
+        let queueEntry = app.buttons["menu.queue"]
+        XCTAssertTrue(queueEntry.waitForExistence(timeout: 20))
+        queueEntry.tap()
+        let wheelNext = app.buttons["wheel.next"]
+        let selectedQueueTrack = app.buttons["queue.track.BBBBBBBB-0000-0000-0000-000000000013"]
+        for _ in 0..<12 { wheelNext.tap() }
+        XCTAssertTrue(selectedQueueTrack.waitForExistence(timeout: 5))
+        XCTAssertEqual(selectedQueueTrack.value as? String, "Selected")
+        XCTAssertTrue(selectedQueueTrack.isHittable, "Wheel browsing should scroll the selected queue row into view.")
+
+        app.buttons["queue.moveUp"].tap()
+        XCTAssertEqual(selectedQueueTrack.value as? String, "Selected", "Reordering must retain selection by track UUID.")
+        XCTAssertTrue(selectedQueueTrack.isHittable, "The moved selection should remain visible after queue reordering.")
+
+    }
+
+    func testLongPlaylistMembersFollowWheelSelectionAndReorder() {
+        let app = XCUIApplication()
+        app.launchArguments = ["--uitesting-library-fixture", "--uitesting-reset-library", "--uitesting-long-collection-fixture"]
+        app.launch()
+
+        XCTAssertTrue(app.buttons["menu.music"].waitForExistence(timeout: 20))
+        app.buttons["menu.music"].tap()
+        app.buttons["music.playlists"].tap()
+        let playlist = app.buttons["playlist.open.CCCCCCCC-0000-0000-0000-000000000001"]
+        XCTAssertTrue(playlist.waitForExistence(timeout: 5))
+        playlist.tap()
+        app.buttons["wheel.select"].tap()
+
+        let wheelNext = app.buttons["wheel.next"]
+        let selectedMember = app.buttons["playlist.member.BBBBBBBB-0000-0000-0000-000000000013"]
+        for _ in 0..<12 { wheelNext.tap() }
+        XCTAssertTrue(selectedMember.waitForExistence(timeout: 5))
+        XCTAssertEqual(selectedMember.value as? String, "Selected")
+        XCTAssertTrue(selectedMember.isHittable, "Wheel browsing should scroll the selected playlist member into view.")
+
+        app.buttons["playlist.moveUp"].tap()
+        XCTAssertEqual(selectedMember.value as? String, "Selected", "Reordering must retain the selected member UUID.")
+        XCTAssertTrue(selectedMember.isHittable, "The moved playlist selection should stay visible.")
     }
 
     private func playlistTrackOrder(in app: XCUIApplication) -> [String] {

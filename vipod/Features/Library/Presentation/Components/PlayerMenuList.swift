@@ -27,7 +27,9 @@ struct PlayerMenuList: View {
                             isSelected: row.id == selectedRowID,
                             theme: theme,
                             action: {
-                                if case .play = row.action {
+                                if case .addToPlaylist = row.action {
+                                    (selectRow ?? activate)(row)
+                                } else if case .play = row.action {
                                     if row.id == selectedRowID {
                                         activate(row)
                                     } else {

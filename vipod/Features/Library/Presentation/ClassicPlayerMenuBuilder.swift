@@ -19,25 +19,26 @@ struct ClassicPlayerMenuBuilder {
         for destination: PlayerDestination,
         tracks: [Track],
         filterText: String,
-        hasConnectedAudioOutput: Bool
+        hasConnectedAudioOutput: Bool,
+        deviceName: String = String(localized: "iPod")
     ) -> [ClassicPlayerRow] {
         switch destination {
         case .mainMenu:
             return [
                 row("menu.music", String(localized: "Music"), .open(.music)),
+                row("menu.nowPlaying", String(localized: "Now Playing"), .open(.nowPlaying)),
                 row("menu.shuffle", String(localized: "Shuffle Songs"), .shuffle(tracks)),
                 row("menu.queue", String(localized: "Queue"), .open(.queue)),
-                row("menu.nowPlaying", String(localized: "Now Playing"), .open(.nowPlaying)),
                 row("menu.settings", String(localized: "Settings"), .open(.settings)),
                 row("menu.import", String(localized: "Import Music"), .importMusic)
             ]
         case .music:
             return [
+                row("music.favorites", String(localized: "Favorites"), .open(.favorites)),
                 row("music.artists", String(localized: "Artists"), .open(.artists)),
                 row("music.albums", String(localized: "Albums"), .open(.albums)),
-                row("music.songs", String(localized: "Songs"), .open(.songs)),
                 row("music.playlists", String(localized: "Playlists"), .open(.playlists)),
-                row("music.favorites", String(localized: "Favorites"), .open(.favorites)),
+                row("music.songs", String(localized: "Songs"), .open(.songs)),
                 row("menu.import", String(localized: "Import Music"), .importMusic)
             ]
         case .artists:
@@ -45,12 +46,26 @@ struct ClassicPlayerMenuBuilder {
                 row("artist.\(name)", name, .open(.artist(name: name)))
             }, by: filterText)
         case .artist(let name):
-            let artistTracks = tracks.filter { $0.artist == name }
+            return [
+                row("artist.albums.\(name)", String(localized: "Albums"), .open(.artistAlbums(name: name))),
+                row("artist.songs.\(name)", String(localized: "Songs"), .open(.artistSongs(name: name)))
+            ]
+        case .artistAlbums(let name):
+            let artistTracks = tracks.filter { $0.artist == name || $0.albumArtist == name }
+            return filtered(albumKeys(in: artistTracks).map { album in
+                row(album.stableID, album.title, .open(.artistAlbum(artist: name, albumArtist: album.artist, title: album.title)))
+            }, by: filterText)
+        case .artistSongs(let name):
+            let artistTracks = tracks.filter { $0.artist == name || $0.albumArtist == name }
             let queue = filteredTracks(artistTracks, by: filterText)
-            let albums = albumKeys(in: artistTracks).map { album in
-                row(album.stableID, album.title, .open(.album(artist: album.artist, title: album.title)))
-            }
-            return filtered(albums + artistTracks.map { trackRow($0, queue: queue) }, by: filterText)
+            return filtered(artistTracks.map { trackRow($0, queue: queue) }, by: filterText)
+        case .artistAlbum(let name, let albumArtist, let title):
+            let albumTracks = tracks.filter {
+                ($0.artist == name || $0.albumArtist == name)
+                    && AlbumKey.key(for: $0) == AlbumKey(artist: albumArtist, title: title)
+            }.sorted(by: trackOrder)
+            let queue = filteredTracks(albumTracks, by: filterText)
+            return filtered(albumTracks.map { trackRow($0, queue: queue) }, by: filterText)
         case .albums:
             return filtered(albumKeys(in: tracks).map { album in
                 row(album.stableID, album.title, .open(.album(artist: album.artist, title: album.title)), subtitle: album.artist)
@@ -63,7 +78,7 @@ struct ClassicPlayerMenuBuilder {
         case .songs:
             let queue = filteredTracks(tracks, by: filterText)
             return filtered(tracks.map { trackRow($0, queue: queue) }, by: filterText)
-        case .playlists, .playlist, .favorites:
+        case .playlists, .playlist, .favorites, .playlistSongPicker:
             return []
         case .nowPlaying:
             return []
@@ -71,8 +86,8 @@ struct ClassicPlayerMenuBuilder {
             return []
         case .settings:
             var settingsRows: [ClassicPlayerRow] = [
-                row("theme.black", String(localized: "Black iPod"), .setTheme(.black)),
-                row("theme.white", String(localized: "White iPod"), .setTheme(.white)),
+                row("theme.black", String.localizedStringWithFormat(String(localized: "Black %@"), deviceName), .setTheme(.black)),
+                row("theme.white", String.localizedStringWithFormat(String(localized: "White %@"), deviceName), .setTheme(.white)),
                 row("settings.shuffle", String(localized: "Shuffle"), .toggleShuffle),
                 row("repeat.off", String(localized: "Repeat Off"), .setRepeat(.off)),
                 row("repeat.all", String(localized: "Repeat All"), .setRepeat(.all)),

@@ -5,11 +5,12 @@ struct PlayerSettingsPresentation {
     let isShuffled: Bool
     let repeatMode: RepeatMode
     let preferredBluetoothKind: BluetoothDeviceKind?
+    var deviceName: String = String(localized: "iPod")
 
     func title(for row: ClassicPlayerRow) -> String {
         switch row.id {
-        case "theme.black": String(localized: "Black iPod")
-        case "theme.white": String(localized: "White iPod")
+        case "theme.black": String.localizedStringWithFormat(String(localized: "Black %@"), deviceName)
+        case "theme.white": String.localizedStringWithFormat(String(localized: "White %@"), deviceName)
         case "settings.shuffle": String(localized: "Shuffle")
         case "repeat.off": String(localized: "Repeat Off")
         case "repeat.all": String(localized: "Repeat All")

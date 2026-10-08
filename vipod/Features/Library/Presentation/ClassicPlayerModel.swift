@@ -8,6 +8,7 @@ public final class ClassicPlayerModel {
     public let playback: PlaybackController
     public let collections: LibraryCollectionController
     public let audioConnection: AudioConnectionMonitor?
+    public var deviceName: String
     public var navigation = PlayerNavigationState()
     public var selectedIndex = 0
     public var selectedQueueTrackID: UUID?
@@ -33,12 +34,13 @@ public final class ClassicPlayerModel {
     }
     public var loadFailed: Bool { operations.loadFailed }
 
-    public init(library: LibraryController, playback: PlaybackController, collections: LibraryCollectionController? = nil, audioConnection: AudioConnectionMonitor? = nil) {
+    public init(library: LibraryController, playback: PlaybackController, collections: LibraryCollectionController? = nil, audioConnection: AudioConnectionMonitor? = nil, deviceName: String = String(localized: "iPod")) {
         self.library = library
         self.playback = playback
         let collections = collections ?? LibraryCollectionController(store: InMemoryLibraryCollectionStore(), tracks: library.tracks)
         self.collections = collections
         self.audioConnection = audioConnection
+        self.deviceName = PlayerDeviceNameResolver.displayName(from: deviceName)
         self.operations = ClassicPlayerLibraryOperations(library: library, playback: playback, collections: collections)
     }
 
@@ -51,9 +53,15 @@ public final class ClassicPlayerModel {
             for: navigation.currentDestination,
             tracks: library.tracks,
             filterText: filterText,
-            hasConnectedAudioOutput: audioConnection?.output != nil
+            hasConnectedAudioOutput: audioConnection?.output != nil,
+            deviceName: deviceName
         )
         switch navigation.currentDestination {
+        case .playlistSongPicker(let playlistID):
+            let playlistTrackIDs = Set(collections.catalog.playlists.first(where: { $0.id == playlistID })?.trackIDs ?? [])
+            return library.tracks.filter { !playlistTrackIDs.contains($0.id) }.map { track in
+                ClassicPlayerRow(id: "playlist.picker.\(track.id.uuidString)", title: track.title, subtitle: track.artist, action: .addToPlaylist(track, playlistID: playlistID))
+            }
         case .playlists:
             return collections.catalog.playlists.map { playlist in
                 ClassicPlayerRow(id: "playlist.\(playlist.id.uuidString)", title: playlist.name, subtitle: "\(playlist.trackIDs.count)", action: .open(.playlist(id: playlist.id)))
@@ -100,13 +108,17 @@ public final class ClassicPlayerModel {
 
     public var screenTitle: String {
         switch navigation.currentDestination {
-        case .mainMenu: String(localized: "iPod")
+        case .mainMenu: deviceName
         case .music: String(localized: "Music")
         case .playlists: String(localized: "Playlists")
         case .playlist(let id): collections.catalog.playlists.first(where: { $0.id == id })?.name ?? String(localized: "Playlist")
+        case .playlistSongPicker: String(localized: "Add Songs")
         case .favorites: String(localized: "Favorites")
         case .artists: String(localized: "Artists")
         case .artist(let name): name
+        case .artistAlbums: String(localized: "Albums")
+        case .artistSongs: String(localized: "Songs")
+        case .artistAlbum(_, _, let title): title
         case .albums: String(localized: "Albums")
         case .album(_, let title): title
         case .songs: String(localized: "Songs")
@@ -173,11 +185,22 @@ public final class ClassicPlayerModel {
             return
         }
         selectedIndex = min(max(selectedIndex + delta, 0), currentRows.count - 1)
+        if currentRows.indices.contains(selectedIndex) { navigation.select(itemID: currentRows[selectedIndex].id) }
     }
 
     public func normalizeSelection() {
         let currentRows = rows
-        selectedIndex = currentRows.isEmpty ? 0 : min(max(selectedIndex, 0), currentRows.count - 1)
+        if let selection = navigation.selection, case .item(let id) = selection,
+           let index = currentRows.firstIndex(where: { $0.id == id }) {
+            selectedIndex = index
+        } else {
+            selectedIndex = currentRows.isEmpty ? 0 : min(max(selectedIndex, 0), currentRows.count - 1)
+            if currentRows.indices.contains(selectedIndex) {
+                navigation.select(itemID: currentRows[selectedIndex].id)
+            } else {
+                navigation.clearSelection()
+            }
+        }
     }
 
     public func nextPressed() {
@@ -248,6 +271,14 @@ public final class ClassicPlayerModel {
         navigation.push(.queue)
     }
 
+    public func openPlaylistSongPicker(for playlistID: UUID) {
+        guard navigation.currentDestination == .playlist(id: playlistID) else { return }
+        filterText = ""
+        navigation.push(.playlistSongPicker(id: playlistID))
+        selectedIndex = 0
+        resetSelection()
+    }
+
     public func playNext(_ track: Track) { playback.playNext(track) }
 
     public func addLast(_ track: Track) { playback.addLast(track) }
@@ -255,31 +286,38 @@ public final class ClassicPlayerModel {
     public func createPlaylist(named name: String) async -> UUID? {
         let id = await collections.createPlaylist(named: name)
         presentationError = collections.errorMessage
+        normalizeSelection()
         return id
     }
     public func renamePlaylist(id: UUID, to name: String) async {
         await collections.renamePlaylist(id: id, to: name)
         presentationError = collections.errorMessage
+        normalizeSelection()
     }
     public func deletePlaylist(id: UUID) async {
         await collections.deletePlaylist(id: id)
         presentationError = collections.errorMessage
+        normalizeSelection()
     }
     public func addToPlaylist(_ trackID: UUID, playlistID: UUID) async {
         await collections.addTrack(trackID, toPlaylist: playlistID)
         presentationError = collections.errorMessage
+        normalizeSelection()
     }
     public func removeFromPlaylist(_ trackID: UUID, playlistID: UUID) async {
         await collections.removeTrack(trackID, fromPlaylist: playlistID)
         presentationError = collections.errorMessage
+        normalizeSelection()
     }
     public func toggleFavorite(_ trackID: UUID) async {
         await collections.toggleFavorite(trackID)
         presentationError = collections.errorMessage
+        normalizeSelection()
     }
     public func movePlaylistTrack(playlistID: UUID, trackID: UUID, by offset: Int) async {
         await collections.moveTrack(trackID, inPlaylist: playlistID, by: offset)
         presentationError = collections.errorMessage
+        normalizeSelection()
     }
     public func playCollection(_ ids: [UUID]) {
         let byID = Dictionary(library.tracks.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
@@ -300,9 +338,13 @@ public final class ClassicPlayerModel {
     }
 
     public func removeSelectedQueueTrack() {
-        guard let id = selectedQueueTrackID else { return }
+        let tracks = playback.queue.orderedTracks
+        guard let id = selectedQueueTrackID, let index = tracks.firstIndex(where: { $0.id == id }) else { return }
         playback.removeTrack(id: id)
-        if !playback.queue.orderedTracks.contains(where: { $0.id == id }) { selectedQueueTrackID = nil }
+        if !playback.queue.orderedTracks.contains(where: { $0.id == id }) {
+            let remaining = playback.queue.orderedTracks
+            selectedQueueTrackID = remaining.isEmpty ? nil : remaining[min(index, remaining.count - 1)].id
+        }
     }
 
     public func removeQueueTrack(id: UUID) { playback.removeTrack(id: id) }
@@ -324,6 +366,9 @@ public final class ClassicPlayerModel {
     private func perform(_ action: ClassicPlayerRow.Action) {
         switch action {
         case .open(let destination):
+            if destination == .queue {
+                selectedQueueTrackID = playback.currentTrack?.id ?? playback.queue.orderedTracks.first?.id
+            }
             navigation.push(destination)
             isSeeking = false
             filterText = ""
@@ -336,6 +381,8 @@ public final class ClassicPlayerModel {
             playback.play(track)
             navigation.push(.nowPlaying)
             resetSelection()
+        case .addToPlaylist(let track, let playlistID):
+            Task { await addToPlaylist(track.id, playlistID: playlistID) }
         case .shuffle(let tracks):
             guard !tracks.isEmpty else { return }
             playback.replaceQueue(with: tracks)
@@ -358,7 +405,11 @@ public final class ClassicPlayerModel {
         }
     }
 
-    private func resetSelection() { selectedIndex = 0 }
+    private func resetSelection() {
+        selectedIndex = 0
+        if let first = rows.first { navigation.select(itemID: first.id) }
+        else { navigation.clearSelection() }
+    }
 
     private var removableSelectedTrack: Track? {
         guard navigation.currentDestination == .songs,
@@ -387,6 +438,7 @@ public final class ClassicPlayerModel {
         let currentRows = rows
         if let index = currentRows.firstIndex(where: { $0.id == row.id }) {
             selectedIndex = index
+            navigation.select(itemID: row.id)
         }
     }
 }

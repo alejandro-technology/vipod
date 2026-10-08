@@ -6,14 +6,7 @@ struct PlaybackQueueView: View {
     let selectedTrackID: UUID?
     let theme: iPodTheme
     let select: (UUID) -> Void
-    let playTrack: (UUID) -> Void
-    let moveUp: () -> Void
-    let moveDown: () -> Void
-    let remove: () -> Void
-
-    private var selectedIndex: Int? {
-        selectedTrackID.flatMap { id in tracks.firstIndex(where: { $0.id == id }) }
-    }
+    var reduceMotion = false
 
     var body: some View {
         VStack(spacing: 8) {
@@ -24,6 +17,7 @@ struct PlaybackQueueView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .accessibilityIdentifier("queue.empty")
             } else {
+                ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(spacing: 0) {
                         ForEach(Array(tracks.enumerated()), id: \.element.id) { index, track in
@@ -47,32 +41,28 @@ struct PlaybackQueueView: View {
                                         .font(.system(size: 10, weight: .semibold))
                                         .accessibilityIdentifier("queue.currentTrack")
                                 }
-                                Button(String(localized: "Play"), systemImage: "play.fill") { playTrack(track.id) }
-                                    .accessibilityLabel(String.localizedStringWithFormat(String(localized: "Play %@"), track.title))
-                                    .accessibilityIdentifier("queue.play.\(track.id.uuidString)")
                             }
                             .foregroundStyle(selectedTrackID == track.id ? theme.palette.selectionText : theme.palette.screenText)
                             .padding(.horizontal, 10)
                             .frame(minHeight: 48)
                             .background(selectedTrackID == track.id ? theme.palette.selection : .clear)
+                            .id(track.id)
                         }
                     }
                 }
                 .scrollIndicators(.hidden)
-                HStack(spacing: 12) {
-                    Button(String(localized: "Move Up"), systemImage: "arrow.up", action: moveUp)
-                        .accessibilityIdentifier("queue.moveUp")
-                        .disabled(selectedIndex == nil || selectedIndex == 0)
-                    Button(String(localized: "Move Down"), systemImage: "arrow.down", action: moveDown)
-                        .accessibilityIdentifier("queue.moveDown")
-                        .disabled(selectedIndex == nil || selectedIndex == tracks.count - 1)
-                    Button(String(localized: "Remove from Queue"), systemImage: "minus.circle", role: .destructive, action: remove)
-                        .accessibilityIdentifier("queue.remove")
-                        .disabled(selectedIndex == nil)
+                .onChange(of: selectedTrackID) { _, id in
+                    guard let id else { return }
+                    if reduceMotion { proxy.scrollTo(id, anchor: .center) }
+                    else { withAnimation(.easeOut(duration: 0.16)) { proxy.scrollTo(id, anchor: .center) } }
                 }
-                .buttonStyle(.bordered)
-                .padding(.horizontal, 8)
-                .padding(.bottom, 6)
+                .onChange(of: tracks.map(\.id)) { _, _ in
+                    guard let selectedTrackID else { return }
+                    if reduceMotion { proxy.scrollTo(selectedTrackID, anchor: .center) }
+                    else { withAnimation(.easeOut(duration: 0.16)) { proxy.scrollTo(selectedTrackID, anchor: .center) } }
+                }
+                .onAppear { if let selectedTrackID { proxy.scrollTo(selectedTrackID, anchor: .center) } }
+                }
             }
         }
     }

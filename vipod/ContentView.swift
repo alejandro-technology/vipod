@@ -20,7 +20,8 @@ struct ContentView: View {
                     collections: dependencies.collections,
                     playback: dependencies.playback,
                     artworkLoader: dependencies.artworkLoader,
-                    audioConnection: dependencies.audioConnection
+                    audioConnection: dependencies.audioConnection,
+                    deviceNameProvider: dependencies.deviceNameProvider
                 )
             } else if startupFailed {
                 StartupFailureView(retry: retryStartup)

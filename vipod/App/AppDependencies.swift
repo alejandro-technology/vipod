@@ -52,6 +52,10 @@ final class AppDependencies {
             try? await repository.artworkData(for: track)
         }
     }
+
+    var deviceNameProvider: @MainActor () -> String {
+        { PlayerDeviceNameResolver.currentDisplayName() }
+    }
 }
 
 #if DEBUG
@@ -59,6 +63,8 @@ private enum UITestLibraryFixture {
     private static let rootName = "VIPOD-UITesting"
     private static let fixtureArgument = "--uitesting-library-fixture"
     private static let resetArgument = "--uitesting-reset-library"
+    private static let longListArgument = "--uitesting-long-list-fixture"
+    private static let longCollectionArgument = "--uitesting-long-collection-fixture"
 
     static func storageURLIfRequested() throws -> URL? {
         let arguments = ProcessInfo.processInfo.arguments
@@ -77,14 +83,33 @@ private enum UITestLibraryFixture {
         try FileManager.default.createDirectory(at: root.appendingPathComponent("Artwork", isDirectory: true), withIntermediateDirectories: true)
         let catalogURL = root.appendingPathComponent("tracks.json")
         guard !FileManager.default.fileExists(atPath: catalogURL.path) else { return root }
-        let tracks = [
+        let tracks: [Track]
+        let usesLongFixture = arguments.contains(longListArgument) || arguments.contains(longCollectionArgument)
+        if usesLongFixture {
+            tracks = (1...60).map { index in
+                let suffix = String(format: "%012d", index)
+                let id = UUID(uuidString: "BBBBBBBB-0000-0000-0000-\(suffix)")!
+                return Track(id: id, title: String(format: "Long Song %02d", index), artist: "Fixture", album: "Long List", trackNumber: index, duration: 32, audioFilename: "long-\(index).mp3")
+            }
+        } else {
+            tracks = [
             Track(id: UUID(uuidString: "AAAAAAAA-0000-0000-0000-000000000001")!, title: "Alpha", artist: "Fixture", album: "Queue", albumArtist: "Fixture", trackNumber: 1, discNumber: 1, duration: 32, audioFilename: "alpha.wav"),
             Track(id: UUID(uuidString: "AAAAAAAA-0000-0000-0000-000000000002")!, title: "Beta", artist: "Fixture", album: "Queue", albumArtist: "Fixture", trackNumber: 2, discNumber: 1, duration: 32, audioFilename: "beta.wav"),
             Track(id: UUID(uuidString: "AAAAAAAA-0000-0000-0000-000000000003")!, title: "Gamma", artist: "Fixture", album: "Queue", albumArtist: "Fixture", trackNumber: 3, discNumber: 1, duration: 32, audioFilename: "gamma.wav")
-        ]
-        for track in tracks { try writeWaveFile(root.appendingPathComponent("Audio").appendingPathComponent(track.audioFilename)) }
+            ]
+            for track in tracks { try writeWaveFile(root.appendingPathComponent("Audio").appendingPathComponent(track.audioFilename)) }
+        }
         try JSONEncoder().encode(tracks).write(to: catalogURL, options: .atomic)
-        let session = PlaybackSession(revision: 1, selectedTrackID: tracks[0].id, elapsed: 0,
+        if arguments.contains(longCollectionArgument) {
+            let playlistID = UUID(uuidString: "CCCCCCCC-0000-0000-0000-000000000001")!
+            let catalog = LibraryCollectionCatalog(
+                playlists: [LibraryPlaylist(id: playlistID, name: "Long Collection", trackIDs: tracks.map(\.id))],
+                favoriteTrackIDs: Set(tracks.map(\.id))
+            )
+            let collectionsURL = root.appendingPathComponent("library-collections.json")
+            try JSONEncoder().encode(catalog).write(to: collectionsURL, options: .atomic)
+        }
+        let session = PlaybackSession(revision: 1, selectedTrackID: usesLongFixture ? nil : tracks[0].id, elapsed: 0,
             queueIDs: tracks.map(\.id), shuffledIDs: tracks.map(\.id), repeatMode: .off, isShuffled: false)
         try JSONEncoder().encode(session).write(to: root.appendingPathComponent("playback-session.json"), options: .atomic)
         return root

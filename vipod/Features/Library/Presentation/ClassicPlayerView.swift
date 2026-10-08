@@ -15,23 +15,28 @@ public struct ClassicPlayerView: View {
     @State private var collectionName = ""
     @State private var showsPlaylistName = false
     @State private var editingPlaylistID: UUID?
+    @State private var showsSongOverflow = false
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.scenePhase) private var scenePhase
 
     private let artworkLoader: ClassicArtworkLoader
     private let audioConnection: AudioConnectionMonitor?
+    private let deviceNameProvider: @MainActor () -> String
 
     public init(
         library: LibraryController,
         collections: LibraryCollectionController? = nil,
         playback: PlaybackController,
         artworkLoader: @escaping ClassicArtworkLoader = { _ in nil },
-        audioConnection: AudioConnectionMonitor? = nil
+        audioConnection: AudioConnectionMonitor? = nil,
+        deviceNameProvider: (@MainActor () -> String)? = nil
     ) {
-        _model = State(initialValue: ClassicPlayerModel(library: library, playback: playback, collections: collections, audioConnection: audioConnection))
+        let resolveDeviceName = deviceNameProvider ?? { PlayerDeviceNameResolver.currentDisplayName() }
+        _model = State(initialValue: ClassicPlayerModel(library: library, playback: playback, collections: collections, audioConnection: audioConnection, deviceName: resolveDeviceName()))
         self.artworkLoader = artworkLoader
         self.audioConnection = audioConnection
+        self.deviceNameProvider = resolveDeviceName
     }
 
     private var theme: iPodTheme { themePreference == "white" ? .classicWhite : .classicBlack }
@@ -62,7 +67,10 @@ public struct ClassicPlayerView: View {
             await model.start()
         }
         .onChange(of: scenePhase) { _, phase in
-            if phase == .active { audioConnection?.refresh() }
+            if phase == .active {
+                audioConnection?.refresh()
+                model.deviceName = PlayerDeviceNameResolver.displayName(from: deviceNameProvider())
+            }
             else if phase == .inactive || phase == .background {
                 Task { await model.playback.flushSession() }
             }
@@ -76,7 +84,7 @@ public struct ClassicPlayerView: View {
             guard let data = await artworkLoader(track), !Task.isCancelled else { return }
             artworkImage = decodeArtwork(data)
         }
-        .onChange(of: model.rows.count) { _, _ in model.normalizeSelection() }
+        .onChange(of: model.rows.map(\.id)) { _, _ in model.normalizeSelection() }
         .onChange(of: model.requestedTheme) { _, _ in
             guard let choice = model.consumeRequestedTheme() else { return }
             themePreference = choice.rawValue
@@ -85,6 +93,9 @@ public struct ClassicPlayerView: View {
             Button(String(localized: "OK"), role: .cancel) { model.presentationError = nil }
         } message: {
             Text(model.presentationError ?? String(localized: "Something went wrong. Please try again."))
+        }
+        .confirmationDialog(String(localized: "More Song Actions"), isPresented: $showsSongOverflow, titleVisibility: .visible) {
+            songOverflowDialogActions
         }
     }
 
@@ -148,6 +159,8 @@ public struct ClassicPlayerView: View {
             playlistsContent
         case .playlist(let id):
             playlistContent(id)
+        case .playlistSongPicker:
+            listContent
         case .favorites:
             favoritesContent
         default:
@@ -168,28 +181,13 @@ public struct ClassicPlayerView: View {
                     emptyMessage: String(localized: "No playlists yet."),
                     openIdentifier: { row in "playlist.open.\(row.id.replacingOccurrences(of: "playlist.", with: ""))" },
                     activate: model.activate,
+                    selectRow: model.selectRow,
+                    reduceMotion: reduceMotion,
+                    touchSelectOnly: true,
                     actions: { row in
-                        guard case .open(.playlist(let id)) = row.action else { return AnyView(EmptyView()) }
-                        return AnyView(Menu {
-                            Button(String(localized: "Rename Playlist"), systemImage: "pencil") {
-                                editingPlaylistID = id
-                                collectionName = row.title
-                                showsPlaylistName = true
-                            }.accessibilityIdentifier("playlist.rename.\(id.uuidString)")
-                            Button(String(localized: "Delete Playlist"), systemImage: "trash", role: .destructive) {
-                                Task { await model.deletePlaylist(id: id) }
-                            }.accessibilityIdentifier("playlist.delete.\(id.uuidString)")
-                        } label: {
-                            Image(systemName: "ellipsis.circle").frame(width: 44, height: 44)
-                        }
-                        .accessibilityLabel(String.localizedStringWithFormat(String(localized: "Actions for %@"), row.title))
-                        .accessibilityIdentifier("playlist.actions.\(id.uuidString)"))
+                        AnyView(EmptyView())
                     },
-                    footerAction: CollectionAddition(title: String(localized: "Create Playlist"), identifier: "playlist.create") {
-                        editingPlaylistID = nil
-                        collectionName = ""
-                        showsPlaylistName = true
-                    }
+                    footerAction: nil
                 )
             }
         }
@@ -209,7 +207,7 @@ public struct ClassicPlayerView: View {
         return Group {
             if !model.collections.hasLoaded {
                 collectionUnavailableView
-            } else if let playlist {
+            } else if playlist != nil {
                 VStack(spacing: 0) {
                     if let error = model.collections.errorMessage { collectionErrorBanner(error) }
                     CollectionRowsView(
@@ -219,35 +217,13 @@ public struct ClassicPlayerView: View {
                         emptyMessage: String(localized: "This playlist is empty."),
                         openIdentifier: { "playlist.member.\($0.id.replacingOccurrences(of: "track.", with: ""))" },
                         activate: model.activate,
+                        selectRow: model.selectRow,
+                        reduceMotion: reduceMotion,
+                        touchSelectOnly: true,
                         actions: { row in
-                        guard case .play(let track, _) = row.action,
-                              let index = playlist.trackIDs.firstIndex(of: track.id) else { return AnyView(EmptyView()) }
-                        return AnyView(Menu {
-                            Button(String(localized: "Move Up"), systemImage: "arrow.up") {
-                                Task { await model.movePlaylistTrack(playlistID: id, trackID: track.id, by: -1) }
-                            }
-                            .disabled(index == 0)
-                            .accessibilityIdentifier("playlist.moveUp.\(track.id.uuidString)")
-                            Button(String(localized: "Move Down"), systemImage: "arrow.down") {
-                                Task { await model.movePlaylistTrack(playlistID: id, trackID: track.id, by: 1) }
-                            }
-                            .disabled(index == playlist.trackIDs.count - 1)
-                            .accessibilityIdentifier("playlist.moveDown.\(track.id.uuidString)")
-                            Button(String(localized: "Remove from Playlist"), systemImage: "minus.circle", role: .destructive) {
-                                Task { await model.removeFromPlaylist(track.id, playlistID: id) }
-                            }
-                            .accessibilityIdentifier("playlist.remove.\(track.id.uuidString)")
-                        } label: {
-                            Image(systemName: "ellipsis.circle").frame(width: 44, height: 44)
-                        }
-                        .accessibilityLabel(String.localizedStringWithFormat(String(localized: "Actions for %@"), track.title))
-                        .accessibilityIdentifier("playlist.member.actions.\(track.id.uuidString)"))
+                        AnyView(EmptyView())
                         },
-                        additions: model.library.tracks.filter { !playlist.trackIDs.contains($0.id) }.map { track in
-                            CollectionAddition(title: String.localizedStringWithFormat(String(localized: "Add %@"), track.title), identifier: "playlist.add.\(track.id.uuidString)") {
-                                Task { await model.addToPlaylist(track.id, playlistID: id) }
-                            }
-                        }
+                        additions: []
                     )
                 }
             } else {
@@ -270,16 +246,11 @@ public struct ClassicPlayerView: View {
                         emptyMessage: String(localized: "No favorite songs yet."),
                         openIdentifier: { "favorites.track.\($0.id.replacingOccurrences(of: "track.", with: ""))" },
                         activate: model.activate,
+                        selectRow: model.selectRow,
+                        reduceMotion: reduceMotion,
+                        touchSelectOnly: true,
                         actions: { row in
-                        guard case .play(let track, _) = row.action else { return AnyView(EmptyView()) }
-                        return AnyView(Button(String(localized: "Remove Favorite"), systemImage: "heart.slash") {
-                            Task { await model.toggleFavorite(track.id) }
-                        }
-                        .labelStyle(.iconOnly)
-                        .frame(width: 44, height: 44)
-                        .accessibilityLabel(String(localized: "Remove Favorite"))
-                        .accessibilityValue(String(localized: "Favorite"))
-                        .accessibilityIdentifier("favorite.toggle.\(track.id.uuidString)"))
+                        AnyView(EmptyView())
                         }
                     )
                 }
@@ -389,7 +360,8 @@ public struct ClassicPlayerView: View {
             isBlackTheme: isBlackTheme,
             isShuffled: model.playback.isShuffled,
             repeatMode: model.playback.repeatMode,
-            preferredBluetoothKind: audioConnection?.preferredDeviceKind
+            preferredBluetoothKind: audioConnection?.preferredDeviceKind,
+            deviceName: model.deviceName
         )
     }
 
@@ -427,10 +399,7 @@ public struct ClassicPlayerView: View {
             selectedTrackID: model.selectedQueueTrackID,
             theme: theme,
             select: model.selectQueueTrack,
-            playTrack: { id in model.selectQueueTrack(id); model.playSelectedQueueTrack() },
-            moveUp: { model.moveSelectedQueueTrack(by: -1) },
-            moveDown: { model.moveSelectedQueueTrack(by: 1) },
-            remove: model.removeSelectedQueueTrack
+            reduceMotion: reduceMotion
         )
     }
 
@@ -442,7 +411,7 @@ public struct ClassicPlayerView: View {
 
     private var isFilterable: Bool {
         switch model.navigation.currentDestination {
-        case .artists, .artist, .albums, .album, .songs: true
+        case .artists, .artistAlbums, .artistSongs, .artistAlbum, .albums, .album, .songs: true
         default: false
         }
     }
@@ -461,7 +430,17 @@ public struct ClassicPlayerView: View {
 
     @ViewBuilder
     private var songActionsToolbar: some View {
-        if model.shouldShowSongActions {
+        if model.navigation.currentDestination == .queue {
+            queueActionsToolbar
+        } else if model.navigation.currentDestination == .playlists {
+            playlistActionsToolbar
+        } else if case .playlist(let id) = model.navigation.currentDestination {
+            playlistMemberActionsToolbar(id: id)
+        } else if case .playlistSongPicker = model.navigation.currentDestination {
+            playlistSongPickerActionsToolbar
+        } else if model.navigation.currentDestination == .favorites {
+            favoriteActionsToolbar
+        } else if model.shouldShowSongActions {
             SongActionsToolbar(
                 selectedTrack: model.selectedSongTrack,
                 canRemove: model.canRemoveSelectedTrack,
@@ -493,6 +472,124 @@ public struct ClassicPlayerView: View {
                 }
             )
             .transition(.opacity)
+        }
+    }
+
+    private var queueActionsToolbar: some View {
+        let tracks = model.playback.queue.orderedTracks
+        let index = model.selectedQueueTrackID.flatMap { id in tracks.firstIndex(where: { $0.id == id }) }
+        return ContextualActionToolbar(actions: [
+            contextualAction("queue.moveUp", "Move Up", "arrow.up", enabled: index != nil && index != 0) {
+                model.moveSelectedQueueTrack(by: -1)
+            },
+            contextualAction("queue.moveDown", "Move Down", "arrow.down", enabled: index != nil && index != tracks.count - 1) {
+                model.moveSelectedQueueTrack(by: 1)
+            },
+            contextualAction("queue.remove", "Remove from Queue", "minus.circle", enabled: index != nil) {
+                model.removeSelectedQueueTrack()
+            }
+        ], theme: theme)
+    }
+
+    private var playlistActionsToolbar: some View {
+        let selected = model.selectedRow
+        let selectedID: UUID? = { if case .open(.playlist(let id))? = selected?.action { return id }; return nil }()
+        return ContextualActionToolbar(actions: [
+            contextualAction("playlist.create", "Create Playlist", "plus") {
+                editingPlaylistID = nil
+                collectionName = ""
+                showsPlaylistName = true
+            },
+            contextualAction("playlist.rename", "Rename Playlist", "pencil", enabled: selectedID != nil) {
+                guard let selectedID else { return }
+                editingPlaylistID = selectedID
+                collectionName = selected?.title ?? ""
+                showsPlaylistName = true
+            },
+            contextualAction("playlist.delete", "Delete Playlist", "trash", enabled: selectedID != nil) {
+                if let selectedID { Task { await model.deletePlaylist(id: selectedID) } }
+            }
+        ], theme: theme)
+    }
+
+    private func playlistMemberActionsToolbar(id: UUID) -> some View {
+        let playlist = model.collections.catalog.playlists.first { $0.id == id }
+        let track = model.selectedSongTrack
+        let index = track.flatMap { selected in playlist?.trackIDs.firstIndex(of: selected.id) }
+        return ContextualActionToolbar(actions: [
+            contextualAction("playlist.addSongs", "Add Songs", "plus", enabled: model.library.tracks.contains(where: { candidate in !(playlist?.trackIDs.contains(candidate.id) ?? true) })) {
+                model.openPlaylistSongPicker(for: id)
+            },
+            contextualAction("playlist.moveUp", "Move Up", "arrow.up", enabled: index != nil && index != 0) {
+                if let track { Task { await model.movePlaylistTrack(playlistID: id, trackID: track.id, by: -1) } }
+            },
+            contextualAction("playlist.moveDown", "Move Down", "arrow.down", enabled: index != nil && index != (playlist?.trackIDs.count ?? 0) - 1) {
+                if let track { Task { await model.movePlaylistTrack(playlistID: id, trackID: track.id, by: 1) } }
+            },
+            contextualAction("playlist.remove", "Remove from Playlist", "minus.circle", enabled: track != nil) {
+                if let track { Task { await model.removeFromPlaylist(track.id, playlistID: id) } }
+            },
+            contextualAction("playlist.more", "More Song Actions", "ellipsis", enabled: track != nil) {
+                showsSongOverflow = true
+            }
+        ], theme: theme)
+    }
+
+    private var playlistSongPickerActionsToolbar: some View {
+        let selectedTrack: Track? = {
+            guard let selected = model.selectedRow,
+                  case .addToPlaylist(let track, _) = selected.action else { return nil }
+            return track
+        }()
+        return ContextualActionToolbar(actions: [
+            contextualAction("playlist.addSelectedSong", "Add Selected Song", "plus", enabled: selectedTrack != nil) {
+                model.selectCurrent()
+            }
+        ], theme: theme)
+    }
+
+    private var favoriteActionsToolbar: some View {
+        let track = model.selectedSongTrack
+        return ContextualActionToolbar(actions: [
+            contextualAction("favorite.toggle", model.isSelectedTrackFavorite ? "Remove Favorite" : "Add Favorite", model.isSelectedTrackFavorite ? "heart.slash" : "heart", enabled: track != nil) {
+                if let track { Task { await model.toggleFavorite(track.id) } }
+            },
+            contextualAction("favorite.more", "More Song Actions", "ellipsis", enabled: track != nil) {
+                showsSongOverflow = true
+            }
+        ], theme: theme)
+    }
+
+    private func contextualAction(
+        _ id: String,
+        _ title: String,
+        _ icon: String,
+        enabled: Bool = true,
+        action: @escaping () -> Void
+    ) -> ContextualPlayerAction {
+        ContextualPlayerAction(
+            id: id,
+            title: String(localized: String.LocalizationValue(title)),
+            icon: icon,
+            isEnabled: enabled,
+            action: action
+        )
+    }
+
+    @ViewBuilder
+    private var songOverflowDialogActions: some View {
+        if let track = model.selectedSongTrack {
+            Button(String(localized: "Play Next")) { model.playNext(track) }
+            Button(String(localized: "Add to Queue")) { model.addLast(track) }
+            Button(model.isSelectedTrackFavorite ? String(localized: "Remove Favorite") : String(localized: "Add Favorite")) {
+                Task { await model.toggleFavorite(track.id) }
+            }
+            ForEach(model.collections.catalog.playlists) { playlist in
+                Button(String.localizedStringWithFormat(String(localized: "Add to %@"), playlist.name)) {
+                    Task { await model.addToPlaylist(track.id, playlistID: playlist.id) }
+                }
+            }
+            Button(String(localized: "Cancel"), role: .cancel) { }
         }
     }
 }

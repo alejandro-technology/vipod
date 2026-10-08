@@ -9,6 +9,7 @@ public struct ClassicPlayerRow: Identifiable, Sendable {
     public enum Action: Sendable {
         case open(PlayerDestination)
         case play(Track, queue: [Track])
+        case addToPlaylist(Track, playlistID: UUID)
         case shuffle([Track])
         case importMusic
         case setTheme(PlayerThemeChoice)

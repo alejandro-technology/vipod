@@ -5,7 +5,7 @@ import XCTest
 final class ClassicPlayerMenuTests: XCTestCase {
     func testMainAndMusicMenusExposeStableRowsAndDestinations() async {
         let model = await makeModel()
-        XCTAssertEqual(model.rows.map(\.id), ["menu.music", "menu.shuffle", "menu.queue", "menu.nowPlaying", "menu.settings", "menu.import"])
+        XCTAssertEqual(model.rows.map(\.id), ["menu.music", "menu.nowPlaying", "menu.shuffle", "menu.queue", "menu.settings", "menu.import"])
         let destinations: [(String, PlayerDestination)] = [
             ("menu.music", .music), ("menu.queue", .queue), ("menu.nowPlaying", .nowPlaying), ("menu.settings", .settings)
         ]
@@ -17,7 +17,7 @@ final class ClassicPlayerMenuTests: XCTestCase {
         }
 
         model.navigation.push(.music)
-        XCTAssertEqual(model.rows.map(\.id), ["music.artists", "music.albums", "music.songs", "music.playlists", "music.favorites", "menu.import"])
+        XCTAssertEqual(model.rows.map(\.id), ["music.favorites", "music.artists", "music.albums", "music.playlists", "music.songs", "menu.import"])
         for (id, destination) in [("music.artists", PlayerDestination.artists), ("music.albums", .albums), ("music.songs", .songs), ("music.playlists", .playlists), ("music.favorites", .favorites)] {
             guard let row = model.rows.first(where: { $0.id == id }), case .open(let actual) = row.action else {
                 return XCTFail("Expected \(id) to open a destination")
@@ -41,7 +41,7 @@ final class ClassicPlayerMenuTests: XCTestCase {
         }, [.album(artist: "A", title: "BC"), .album(artist: "AB", title: "C"), .album(artist: "Different Artist", title: "BC")])
 
         model.navigation.push(.artist(name: "A"))
-        XCTAssertEqual(model.rows.map(\.title), ["BC", "One", "Three"])
+        XCTAssertEqual(model.rows.map(\.title), ["Albums", "Songs"])
     }
 
     func testAlbumGroupingUsesAlbumArtistAndCompilationFallbackAndOrdersDiscThenTrack() async throws {
@@ -135,12 +135,23 @@ final class ClassicPlayerMenuTests: XCTestCase {
         let otherArtist = track("Three", artist: "Other", album: "Shared")
         let model = await makeModel(tracks: [first, second, otherArtist])
         model.navigation.push(.artist(name: "Artist"))
-        XCTAssertEqual(model.rows.map(\.title), ["Shared", "One", "Two"])
+        XCTAssertEqual(model.rows.map(\.title), ["Albums", "Songs"])
+        model.navigation.push(.artistSongs(name: "Artist"))
+        XCTAssertEqual(model.rows.map(\.title), ["One", "Two"])
         model.filterText = "one"
         XCTAssertEqual(model.rows.map(\.title), ["One"])
         guard case .play(_, let filteredQueue) = try XCTUnwrap(model.rows.first).action else { return XCTFail("Expected track action") }
         XCTAssertEqual(filteredQueue, [first])
         model.filterText = ""
+        model.navigation.pop()
+        model.navigation.push(.artistAlbums(name: "Artist"))
+        XCTAssertEqual(model.rows.map(\.title), ["Shared"])
+        let artistAlbum = try XCTUnwrap(model.rows.first)
+        guard case .open(let artistAlbumDestination) = artistAlbum.action else { return XCTFail("Expected artist-scoped album") }
+        XCTAssertEqual(artistAlbumDestination, .artistAlbum(artist: "Artist", albumArtist: "Artist", title: "Shared"))
+        model.navigation.push(artistAlbumDestination)
+        XCTAssertEqual(model.rows.map(\.title), ["One", "Two"])
+        model.navigation.returnToRoot()
         model.navigation.push(.album(artist: "Artist", title: "Shared"))
         XCTAssertEqual(model.rows.map(\.title), ["One", "Two"])
         model.filterText = "Other"
@@ -150,6 +161,36 @@ final class ClassicPlayerMenuTests: XCTestCase {
         guard case .play(_, let albumQueue) = try XCTUnwrap(model.rows.first).action else { return XCTFail("Expected track action") }
         XCTAssertEqual(albumQueue, [second])
         XCTAssertFalse(albumQueue.contains(otherArtist))
+    }
+
+    func testDeviceNameResolverTrimsAndRejectsBlankOrGenericNames() {
+        XCTAssertEqual(PlayerDeviceNameResolver.displayName(from: "  Alex’s iPhone  "), "Alex’s iPhone")
+        XCTAssertEqual(PlayerDeviceNameResolver.displayName(from: "iPhone de Cristian"), "iPhone de Cristian")
+        XCTAssertEqual(PlayerDeviceNameResolver.displayName(from: "iPhone de Alejandro"), "iPhone de Alejandro")
+        XCTAssertEqual(PlayerDeviceNameResolver.displayName(from: "iPhone 17 de Cristian"), "iPhone 17 de Cristian")
+        XCTAssertEqual(PlayerDeviceNameResolver.displayName(from: "iPhone 17 Work"), "iPhone 17 Work")
+        XCTAssertEqual(PlayerDeviceNameResolver.displayName(from: "iPad de Ana"), "iPad de Ana")
+        XCTAssertEqual(PlayerDeviceNameResolver.displayName(from: "iPhone"), "iPod")
+        XCTAssertEqual(PlayerDeviceNameResolver.displayName(from: "iPad"), "iPod")
+        XCTAssertEqual(PlayerDeviceNameResolver.displayName(from: "iPod touch"), "iPod")
+        XCTAssertEqual(PlayerDeviceNameResolver.displayName(from: "iPhone 17 Pro"), "iPod")
+        XCTAssertEqual(PlayerDeviceNameResolver.displayName(from: "  \n"), "iPod")
+        XCTAssertEqual(PlayerDeviceNameResolver.displayName(from: nil), "iPod")
+    }
+
+    func testInjectedDeviceNameAppearsInRootAndThemeChoices() async {
+        let model = await makeModel(deviceName: "  Alex’s iPhone  ")
+        XCTAssertEqual(model.screenTitle, "Alex’s iPhone")
+        model.navigation.push(.settings)
+        XCTAssertEqual(model.rows.prefix(2).map(\.title), ["Black Alex’s iPhone", "White Alex’s iPhone"])
+
+        let genericModel = await makeModel(deviceName: "iPhone 17")
+        XCTAssertEqual(genericModel.screenTitle, "iPod")
+
+        let personalizedModel = await makeModel(deviceName: "iPhone de Cristian")
+        XCTAssertEqual(personalizedModel.screenTitle, "iPhone de Cristian")
+        personalizedModel.navigation.push(.settings)
+        XCTAssertEqual(personalizedModel.rows.prefix(2).map(\.title), ["Black iPhone de Cristian", "White iPhone de Cristian"])
     }
 
     func testSelectionClampsAndOpeningOrBackingResetsBrowseState() async {
@@ -182,10 +223,10 @@ final class ClassicPlayerMenuTests: XCTestCase {
         Track(title: title, artist: artist, album: album, audioFilename: "\(title).mp3")
     }
 
-    private func makeModel(tracks: [Track] = [], audioConnection: AudioConnectionMonitor? = nil) async -> ClassicPlayerModel {
+    private func makeModel(tracks: [Track] = [], audioConnection: AudioConnectionMonitor? = nil, deviceName: String = "iPod") async -> ClassicPlayerModel {
         let library = LibraryController(repository: MenuTestRepository(tracks: tracks))
         await library.load()
-        return ClassicPlayerModel(library: library, playback: PlaybackController(engine: MenuTestPlayback()), audioConnection: audioConnection)
+        return ClassicPlayerModel(library: library, playback: PlaybackController(engine: MenuTestPlayback()), audioConnection: audioConnection, deviceName: deviceName)
     }
 }
 

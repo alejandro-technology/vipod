@@ -6,9 +6,13 @@ public enum PlayerDestination: Hashable, Sendable {
     case music
     case playlists
     case playlist(id: UUID)
+    case playlistSongPicker(id: UUID)
     case favorites
     case artists
     case artist(name: String)
+    case artistAlbums(name: String)
+    case artistSongs(name: String)
+    case artistAlbum(artist: String, albumArtist: String, title: String)
     case albums
     case album(artist: String, title: String)
     case songs
@@ -43,6 +47,10 @@ public struct PlayerNavigationState: Equatable, Sendable {
 
     public mutating func select(itemID: String) {
         selection = .item(id: itemID)
+    }
+
+    public mutating func clearSelection() {
+        selection = nil
     }
 
     public mutating func select(action: PlayerMenuAction) {
