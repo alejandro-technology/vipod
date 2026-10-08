@@ -79,7 +79,24 @@
             </BuildableReference>
          </TestableReference>
       </Testables>
-   </TestAction>
+      <TestPlans>
+         <TestPlanReference
+            reference = "container:vipod.xcodeproj/xcshareddata/xctestplans/VIPODDefaultTests.xctestplan"
+            default = "YES">
+            <Name>VIPODDefaultTests</Name>
+         </TestPlanReference>
+         <TestPlanReference
+            reference = "container:vipod.xcodeproj/xcshareddata/xctestplans/YouTubeRuntime.xctestplan"
+            default = "NO">
+            <Name>YouTubeRuntime</Name>
+         </TestPlanReference>
+         <TestPlanReference
+            reference = "container:vipod.xcodeproj/xcshareddata/xctestplans/YouTubeRuntimeDevice.xctestplan"
+            default = "NO">
+            <Name>YouTubeRuntimeDevice</Name>
+         </TestPlanReference>
+      </TestPlans>
+    </TestAction>
    <LaunchAction
       buildConfiguration = "Debug"
       selectedDebuggerIdentifier = "Xcode.DebuggerFoundation.Debugger.LLDB"

@@ -1,0 +1,33 @@
+{
+  "configurations" : [
+    {
+      "id" : "E8D33629-92F0-4EFD-A032-1AC9ED8ED401",
+      "name" : "Opt-in physical live YouTube runtime",
+      "options" : {
+        "environmentVariableEntries" : [
+          {
+            "key" : "VIPOD_RUN_YOUTUBE_RUNTIME_TESTS",
+            "value" : "1",
+            "isEnabled" : true
+          },
+          {
+            "key" : "VIPOD_YOUTUBE_REAL_LIBRARY",
+            "value" : "1",
+            "isEnabled" : true
+          }
+        ]
+      }
+    }
+  ],
+  "defaultOptions" : { },
+  "testTargets" : [
+    {
+      "target" : {
+        "containerPath" : "container:vipod.xcodeproj",
+        "identifier" : "B20000033000000000000003",
+        "name" : "vipodUITests"
+      }
+    }
+  ],
+  "version" : 1
+}

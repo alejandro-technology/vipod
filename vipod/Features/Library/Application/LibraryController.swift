@@ -27,18 +27,32 @@ public final class LibraryController {
         catch { errorMessage = "The music library could not be loaded." }
     }
 
-    public func importTracks(from urls: [URL]) async {
-        guard !urls.isEmpty, !isRemoving else { return }
+    @discardableResult
+    public func importTracks(from urls: [URL]) async -> TrackImportReport? {
+        guard !urls.isEmpty else { lastImportReport = nil; return nil }
+        guard !isRemoving, !isImporting else { return nil }
+        lastImportReport = nil
+        errorMessage = nil
         isImporting = true
         defer { isImporting = false }
         do {
             let report = try await repository.importTracks(from: urls)
             lastImportReport = report
-            tracks = try await repository.tracks()
-            errorMessage = report.failures.isEmpty ? nil : "Some selected files could not be imported."
+            do {
+                tracks = try await repository.tracks()
+                errorMessage = report.failures.isEmpty ? nil : "Some selected files could not be imported."
+            } catch {
+                errorMessage = "The import completed, but the music library could not be refreshed."
+            }
+            return report
         } catch is CancellationError {
-            lastImportReport = TrackImportReport(imported: [], wasCancelled: true)
-        } catch { errorMessage = "The selected files could not be imported or the library could not be saved." }
+            let report = TrackImportReport(imported: [], wasCancelled: true)
+            lastImportReport = report
+            return report
+        } catch {
+            errorMessage = "The selected files could not be imported or the library could not be saved."
+            return nil
+        }
     }
 
     @discardableResult

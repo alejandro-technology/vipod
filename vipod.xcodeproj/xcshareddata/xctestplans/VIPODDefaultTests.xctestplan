@@ -1,0 +1,27 @@
+{
+  "configurations" : [
+    {
+      "id" : "7476628F-9FA9-458E-B094-4C7DFD2C34EF",
+      "name" : "Default",
+      "options" : { }
+    }
+  ],
+  "defaultOptions" : { },
+  "testTargets" : [
+    {
+      "target" : {
+        "containerPath" : "container:vipod.xcodeproj",
+        "identifier" : "B10000043000000000000004",
+        "name" : "vipodTests"
+      }
+    },
+    {
+      "target" : {
+        "containerPath" : "container:vipod.xcodeproj",
+        "identifier" : "B20000033000000000000003",
+        "name" : "vipodUITests"
+      }
+    }
+  ],
+  "version" : 1
+}
