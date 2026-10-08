@@ -14,6 +14,8 @@ public final class ClassicPlayerModel {
     public var selectedQueueTrackID: UUID?
     public var filterText = ""
     public var isImporterPresented = false
+    public var isYouTubeDownloadsPresented = false
+    public var supportsYouTubeDownloads = false
     public var isSeeking = false
     public private(set) var selectedTrackForRemoval: Track?
     public private(set) var requestedTheme: PlayerThemeChoice?
@@ -74,7 +76,11 @@ public final class ClassicPlayerModel {
             let byID = Dictionary(library.tracks.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
             let ordered = playlist.trackIDs.compactMap { byID[$0] }
             return ordered.map { ClassicPlayerRow(id: "track.\($0.id.uuidString)", title: $0.title, subtitle: $0.artist, action: .play($0, queue: ordered)) }
-        default: return base
+        default:
+            if navigation.currentDestination == .mainMenu, !supportsYouTubeDownloads {
+                return base.filter { $0.id != "menu.youtubeDownloads" }
+            }
+            return base
         }
     }
 
@@ -394,6 +400,9 @@ public final class ClassicPlayerModel {
         case .importMusic:
             guard !library.isImporting else { return }
             isImporterPresented = true
+        case .youtubeDownloads:
+            guard supportsYouTubeDownloads else { return }
+            isYouTubeDownloadsPresented = true
         case .setTheme(let theme):
             requestedTheme = theme
         case .setRepeat(let mode):

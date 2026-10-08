@@ -26,14 +26,7 @@ struct ContentView: View {
                     autoRun: arguments.contains("--youtube-poc-autorun") && YouTubeVideoURL(initialURL) != nil
                 )
             } else if let dependencies {
-                ClassicPlayerView(
-                    library: dependencies.library,
-                    collections: dependencies.collections,
-                    playback: dependencies.playback,
-                    artworkLoader: dependencies.artworkLoader,
-                    audioConnection: dependencies.audioConnection,
-                    deviceNameProvider: dependencies.deviceNameProvider
-                )
+                playerView(dependencies)
             } else if startupFailed {
                 StartupFailureView(retry: retryStartup)
             } else {
@@ -42,14 +35,7 @@ struct ContentView: View {
             }
             #else
             if let dependencies {
-                ClassicPlayerView(
-                    library: dependencies.library,
-                    collections: dependencies.collections,
-                    playback: dependencies.playback,
-                    artworkLoader: dependencies.artworkLoader,
-                    audioConnection: dependencies.audioConnection,
-                    deviceNameProvider: dependencies.deviceNameProvider
-                )
+                playerView(dependencies)
             } else if startupFailed {
                 StartupFailureView(retry: retryStartup)
             } else {
@@ -59,6 +45,30 @@ struct ContentView: View {
             #endif
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    @ViewBuilder
+    private func playerView(_ dependencies: AppDependencies) -> some View {
+        #if os(iOS)
+        ClassicPlayerView(
+            library: dependencies.library,
+            collections: dependencies.collections,
+            playback: dependencies.playback,
+            artworkLoader: dependencies.artworkLoader,
+            audioConnection: dependencies.audioConnection,
+            deviceNameProvider: dependencies.deviceNameProvider,
+            youtubeDownloads: dependencies.youtubeDownloads
+        )
+        #else
+        ClassicPlayerView(
+            library: dependencies.library,
+            collections: dependencies.collections,
+            playback: dependencies.playback,
+            artworkLoader: dependencies.artworkLoader,
+            audioConnection: dependencies.audioConnection,
+            deviceNameProvider: dependencies.deviceNameProvider
+        )
+        #endif
     }
 }
 

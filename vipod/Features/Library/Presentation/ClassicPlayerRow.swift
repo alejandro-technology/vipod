@@ -12,6 +12,7 @@ public struct ClassicPlayerRow: Identifiable, Sendable {
         case addToPlaylist(Track, playlistID: UUID)
         case shuffle([Track])
         case importMusic
+        case youtubeDownloads
         case setTheme(PlayerThemeChoice)
         case setRepeat(RepeatMode)
         case setBluetoothKind(BluetoothDeviceKind)

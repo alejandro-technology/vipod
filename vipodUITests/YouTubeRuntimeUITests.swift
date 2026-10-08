@@ -1,6 +1,117 @@
 import XCTest
 
 final class YouTubeRuntimeUITests: XCTestCase {
+    func testRequestedVideoThroughProductionMenu() throws {
+        guard ProcessInfo.processInfo.environment["VIPOD_RUN_YOUTUBE_RUNTIME_TESTS"] == "1" else {
+            throw XCTSkip("Set VIPOD_RUN_YOUTUBE_RUNTIME_TESTS=1 to opt into live YouTube runtime tests.")
+        }
+
+        let app = XCUIApplication()
+        app.launchArguments = ["--uitesting-library-fixture", "--uitesting-reset-library"]
+        app.launch()
+
+        let menuEntry = app.buttons["menu.youtubeDownloads"]
+        XCTAssertTrue(menuEntry.waitForExistence(timeout: 20))
+        menuEntry.tap()
+        let savedTrack = app.staticTexts["youtube.download.savedTrack"]
+        let failure = app.staticTexts["youtube.download.error"]
+        let playbackStatus = app.staticTexts["youtube.download.playbackStatus"]
+        let url = app.textFields["youtube.download.url"]
+        XCTAssertTrue(url.waitForExistence(timeout: 10))
+        url.tap()
+        url.typeText("https://youtu.be/gtqEDfuGK_k")
+        app.buttons["youtube.download.submit"].tap()
+        attachPhase("first-download-started", app: app)
+
+        XCTAssertTrue(waitForDownloadTerminal(app: app, savedTrack: savedTrack, failure: failure), "First production download did not reach a terminal UI state.")
+        attachPhase("first-download-terminal", app: app)
+
+        if savedTrack.exists {
+            XCTAssertFalse(savedTrack.label.isEmpty)
+            let titleReceipt = XCTAttachment(string: "Imported track title: \(savedTrack.label)")
+            titleReceipt.name = "Requested YouTube video import receipt"
+            titleReceipt.lifetime = .keepAlways
+            add(titleReceipt)
+            app.buttons["youtube.download.play"].tap()
+            XCTAssertTrue(playbackStatus.waitForExistence(timeout: 10))
+            XCTAssertTrue(playbackStatus.label.contains("Playback started"))
+
+            app.buttons["youtube.download.submit"].tap()
+            attachPhase("second-download-submitted", app: app)
+
+            let oldPlaybackStatusCleared = expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: playbackStatus)
+            wait(for: [oldPlaybackStatusCleared], timeout: 10)
+            XCTAssertFalse(playbackStatus.exists, "Second submission did not clear the first operation's playback receipt.")
+
+            guard waitForDownloadTerminal(app: app, savedTrack: savedTrack, failure: failure) else {
+                attachPhase("second-download-terminal-timeout", app: app)
+                XCTFail("Second production download remained in state: \(downloadState(status: app.staticTexts["youtube.download.status"], savedTrack: savedTrack, failure: failure, playbackStatus: playbackStatus))")
+                return
+            }
+            attachPhase("second-download-terminal", app: app)
+
+            if savedTrack.exists {
+                XCTAssertFalse(savedTrack.label.isEmpty)
+                let secondTitle = XCTAttachment(string: "Second completed import title: \(savedTrack.label)")
+                secondTitle.name = "Second same-process completed import"
+                secondTitle.lifetime = .keepAlways
+                add(secondTitle)
+                app.buttons["youtube.download.play"].tap()
+                XCTAssertTrue(playbackStatus.waitForExistence(timeout: 10))
+                XCTAssertTrue(playbackStatus.label.contains("Playback started"), "Second completed import did not play: \(playbackStatus.label)")
+                attachPhase("second-import-playback-started", app: app)
+            } else if failure.exists {
+                let errorMessage = failure.label
+                let typedDuplicate = errorMessage.localizedCaseInsensitiveContains("already in your music library")
+                let secondError = XCTAttachment(string: "Second same-process operation failed: \(errorMessage)")
+                secondError.name = typedDuplicate ? "Second transfer typed duplicate" : "Second transfer error"
+                secondError.lifetime = .keepAlways
+                add(secondError)
+                XCTAssertTrue(typedDuplicate, "Second production download failed: \(errorMessage)")
+            } else {
+                attachPhase("second-download-unclassified-terminal", app: app)
+                XCTFail("Second production operation reached an unrecognized terminal UI state.")
+            }
+        } else {
+            attachPhase("first-download-failed", app: app)
+            XCTFail("Production download failed: \(failure.label)")
+        }
+    }
+
+    private func waitForDownloadTerminal(app: XCUIApplication, savedTrack: XCUIElement, failure: XCUIElement) -> Bool {
+        let terminalState = app.staticTexts.matching(
+            NSPredicate(format: "identifier == %@ OR identifier == %@", "youtube.download.savedTrack", "youtube.download.error")
+        ).firstMatch
+        return terminalState.waitForExistence(timeout: 660)
+    }
+
+    private func attachPhase(_ phase: String, app: XCUIApplication) {
+        let status = app.staticTexts["youtube.download.status"]
+        let savedTrack = app.staticTexts["youtube.download.savedTrack"]
+        let failure = app.staticTexts["youtube.download.error"]
+        let playbackStatus = app.staticTexts["youtube.download.playbackStatus"]
+        let attachment = XCTAttachment(string: """
+        Phase: \(phase)
+        Download status: \(status.exists ? status.label : "<not displayed>")
+        Saved track: \(savedTrack.exists ? savedTrack.label : "<not displayed>")
+        Error: \(failure.exists ? failure.label : "<not displayed>")
+        Playback status: \(playbackStatus.exists ? playbackStatus.label : "<not displayed>")
+        Accessibility hierarchy:
+        \(app.debugDescription)
+        """)
+        attachment.name = "YouTube production phase — \(phase)"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+
+    private func downloadState(status: XCUIElement, savedTrack: XCUIElement, failure: XCUIElement, playbackStatus: XCUIElement) -> String {
+        let statusText = status.exists ? status.label : "<not displayed>"
+        let savedText = savedTrack.exists ? savedTrack.label : "<not displayed>"
+        let errorText = failure.exists ? failure.label : "<not displayed>"
+        let playbackText = playbackStatus.exists ? playbackStatus.label : "<not displayed>"
+        return "status=\(statusText), saved=\(savedText), error=\(errorText), playback=\(playbackText)"
+    }
+
     func testExplicitLiveYouTubeRuntimeImport() throws {
         guard ProcessInfo.processInfo.environment["VIPOD_RUN_YOUTUBE_RUNTIME_TESTS"] == "1" else {
             throw XCTSkip("Set VIPOD_RUN_YOUTUBE_RUNTIME_TESTS=1 to opt into the live YouTube runtime diagnostic.")

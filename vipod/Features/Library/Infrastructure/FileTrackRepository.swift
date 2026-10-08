@@ -150,7 +150,14 @@ nonisolated public actor FileTrackRepository: TrackRepository {
             } catch is CancellationError {
                 return await TrackImportReport(imported: imported, failures: failures, wasCancelled: true)
             } catch {
-                failures.append(await TrackImportFailure(filename: filename, message: Self.userMessage(for: error)))
+                let reason: TrackImportFailure.Reason
+                switch error as? RepositoryError {
+                case .duplicateImport: reason = .duplicate
+                case .unsupportedFormat: reason = .unsupportedFormat
+                case .invalidAudio: reason = .invalidAudio
+                default: reason = .other
+                }
+                failures.append(await TrackImportFailure(filename: filename, message: Self.userMessage(for: error), reason: reason))
             }
         }
         cachedTracks = current

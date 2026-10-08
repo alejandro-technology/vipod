@@ -23,6 +23,9 @@ public struct ClassicPlayerView: View {
     private let artworkLoader: ClassicArtworkLoader
     private let audioConnection: AudioConnectionMonitor?
     private let deviceNameProvider: @MainActor () -> String
+    #if os(iOS)
+    private let youtubeDownloads: YouTubeDownloadController?
+    #endif
 
     public init(
         library: LibraryController,
@@ -37,7 +40,31 @@ public struct ClassicPlayerView: View {
         self.artworkLoader = artworkLoader
         self.audioConnection = audioConnection
         self.deviceNameProvider = resolveDeviceName
+        #if os(iOS)
+        self.youtubeDownloads = nil
+        #endif
     }
+
+    #if os(iOS)
+    init(
+        library: LibraryController,
+        collections: LibraryCollectionController? = nil,
+        playback: PlaybackController,
+        artworkLoader: @escaping ClassicArtworkLoader = { _ in nil },
+        audioConnection: AudioConnectionMonitor? = nil,
+        deviceNameProvider: (@MainActor () -> String)? = nil,
+        youtubeDownloads: YouTubeDownloadController
+    ) {
+        let resolveDeviceName = deviceNameProvider ?? { PlayerDeviceNameResolver.currentDisplayName() }
+        let model = ClassicPlayerModel(library: library, playback: playback, collections: collections, audioConnection: audioConnection, deviceName: resolveDeviceName())
+        model.supportsYouTubeDownloads = true
+        _model = State(initialValue: model)
+        self.artworkLoader = artworkLoader
+        self.audioConnection = audioConnection
+        self.deviceNameProvider = resolveDeviceName
+        self.youtubeDownloads = youtubeDownloads
+    }
+    #endif
 
     private var theme: iPodTheme { themePreference == "white" ? .classicWhite : .classicBlack }
     private var isBlackTheme: Bool { themePreference != "white" }
@@ -62,6 +89,13 @@ public struct ClassicPlayerView: View {
             onCompletion: handleImportResult,
             onCancellation: model.importerCancelled
         )
+        #if os(iOS)
+        .sheet(isPresented: $model.isYouTubeDownloadsPresented) {
+            if let youtubeDownloads {
+                YouTubeDownloadView(controller: youtubeDownloads)
+            }
+        }
+        #endif
         .task {
             audioConnection?.start()
             await model.start()

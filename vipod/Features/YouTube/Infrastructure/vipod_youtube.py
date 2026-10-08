@@ -116,6 +116,8 @@ def extract(url: str) -> str:
             "httpHeaders": item.get("http_headers") or {},
             "filesize": item.get("filesize") or item.get("filesize_approx"),
             "bitrate": item.get("tbr"),
+            "source_preference": item.get("source_preference"),
+            "preference": item.get("preference"),
         })
     return json.dumps({
         "id": info.get("id"),

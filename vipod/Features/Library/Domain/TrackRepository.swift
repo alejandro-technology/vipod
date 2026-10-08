@@ -19,13 +19,22 @@ public struct TrackImportReport: Sendable {
 }
 
 public struct TrackImportFailure: Sendable, Identifiable {
+    public enum Reason: Sendable, Equatable {
+        case duplicate
+        case unsupportedFormat
+        case invalidAudio
+        case other
+    }
+
     public let id: UUID
     public let filename: String
     public let message: String
+    public let reason: Reason
 
-    public init(id: UUID = UUID(), filename: String, message: String) {
+    public init(id: UUID = UUID(), filename: String, message: String, reason: Reason = .other) {
         self.id = id
         self.filename = filename
         self.message = message
+        self.reason = reason
     }
 }

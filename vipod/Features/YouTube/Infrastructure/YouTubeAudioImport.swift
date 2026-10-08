@@ -37,9 +37,11 @@ nonisolated struct YouTubeAudioFormat: Decodable, Sendable {
     let httpHeaders: [String: String]
     let filesize: Int64?
     let bitrate: Double?
+    var sourcePreference: Double? = nil
+    var preference: Double? = nil
 
     enum CodingKeys: String, CodingKey {
-        case formatID, protocolName = "protocol", extensionName = "extension", audioCodec, videoCodec, url, httpHeaders, filesize, bitrate
+        case formatID, protocolName = "protocol", extensionName = "extension", audioCodec, videoCodec, url, httpHeaders, filesize, bitrate, sourcePreference = "source_preference", preference
     }
 
     var isCompatibleAAC: Bool {
@@ -52,7 +54,9 @@ nonisolated struct YouTubeAudioFormat: Decodable, Sendable {
     }
 
     static func best(from formats: [YouTubeAudioFormat]) -> YouTubeAudioFormat? {
-        formats.filter(\.isCompatibleAAC).max { ($0.bitrate ?? 0) < ($1.bitrate ?? 0) }
+        // yt-dlp returns formats ordered worst to best using extractor and format
+        // preferences as well as bitrate. Preserve that authoritative ranking.
+        formats.last(where: \.isCompatibleAAC)
     }
 }
 
@@ -66,9 +70,11 @@ nonisolated struct YouTubeFormatCandidate: Decodable, Sendable {
     let httpHeaders: [String: String]?
     let filesize: Int64?
     let bitrate: Double?
+    var sourcePreference: Double? = nil
+    var preference: Double? = nil
 
     enum CodingKeys: String, CodingKey {
-        case formatID, protocolName = "protocol", extensionName = "extension", audioCodec, videoCodec, url, httpHeaders, filesize, bitrate
+        case formatID, protocolName = "protocol", extensionName = "extension", audioCodec, videoCodec, url, httpHeaders, filesize, bitrate, sourcePreference = "source_preference", preference
     }
 
     var directAudioFormat: YouTubeAudioFormat? {
@@ -83,7 +89,9 @@ nonisolated struct YouTubeFormatCandidate: Decodable, Sendable {
             url: url,
             httpHeaders: httpHeaders ?? [:],
             filesize: filesize,
-            bitrate: bitrate
+            bitrate: bitrate,
+            sourcePreference: sourcePreference,
+            preference: preference
         )
     }
 }
@@ -92,8 +100,20 @@ nonisolated struct YouTubeExtractionResult: Sendable {
     let id: String
     let title: String
     let format: YouTubeAudioFormat
+    let formats: [YouTubeAudioFormat]
     let webkitJSCChallengeCalls: Int
     let webkitJSCChallengeSuccesses: Int
+
+    func selecting(_ selectedFormat: YouTubeAudioFormat) -> YouTubeExtractionResult {
+        YouTubeExtractionResult(
+            id: id,
+            title: title,
+            format: selectedFormat,
+            formats: formats,
+            webkitJSCChallengeCalls: webkitJSCChallengeCalls,
+            webkitJSCChallengeSuccesses: webkitJSCChallengeSuccesses
+        )
+    }
 }
 
 nonisolated struct YouTubeExtraction: Decodable, Sendable {
@@ -112,6 +132,9 @@ nonisolated enum YouTubeImportError: LocalizedError {
     case insecureFormat
     case invalidAudioContainer
     case downloadFailed
+    case httpFailure(Int)
+    case duplicateImport
+    case libraryImportFailed(String)
     case runtimeBusy
     case runtimeUnavailable
     case runtimeTimedOut
@@ -124,6 +147,9 @@ nonisolated enum YouTubeImportError: LocalizedError {
         case .insecureFormat: "The selected audio format did not provide a secure HTTPS URL."
         case .invalidAudioContainer: "The downloaded file is not a valid M4A audio container."
         case .downloadFailed: "The audio download could not be completed."
+        case .httpFailure(let statusCode): "The audio server returned HTTP status \(statusCode)."
+        case .duplicateImport: "This audio is already in your music library."
+        case .libraryImportFailed(let message): message
         case .runtimeBusy: "The previous Python extraction is still running. Wait for it to finish or restart VIPOD."
         case .runtimeUnavailable: "The embedded Python runtime is unavailable after a provider timeout. Restart VIPOD to retry."
         case .runtimeTimedOut: "YouTube extraction exceeded the 120-second diagnostic limit. Check the provider log and restart VIPOD before retrying."
@@ -283,11 +309,14 @@ nonisolated final class EmbeddedYouTubeExtractor: @unchecked Sendable {
         let usableFormats = extraction.formats.compactMap(\.directAudioFormat)
         guard let format = YouTubeAudioFormat.best(from: usableFormats) else { throw YouTubeImportError.noCompatibleAudio }
         guard format.url.scheme?.lowercased() == "https" else { throw YouTubeImportError.insecureFormat }
-        VIPODPythonLog("Extracted \(extraction.id) (\(extraction.title)); selected direct HTTPS \(format.extensionName)/\(format.audioCodec), video=none. Signed URL suppressed.")
+        let preference = format.preference.map { String($0) } ?? "unset"
+        let sourcePreference = format.sourcePreference.map { String($0) } ?? "unset"
+        VIPODPythonLog("Extracted \(extraction.id) (\(extraction.title)); selected yt-dlp-ranked format \(format.formatID) from \(usableFormats.filter(\.isCompatibleAAC).count) compatible HTTPS AAC formats; preference=\(preference), sourcePreference=\(sourcePreference), challenge=\(extraction.webkitJSCChallengeSuccesses)/\(extraction.webkitJSCChallengeCalls). Signed URL suppressed.")
         return YouTubeExtractionResult(
             id: extraction.id,
             title: extraction.title,
             format: format,
+            formats: usableFormats.filter(\.isCompatibleAAC).reversed(),
             webkitJSCChallengeCalls: extraction.webkitJSCChallengeCalls,
             webkitJSCChallengeSuccesses: extraction.webkitJSCChallengeSuccesses
         )
@@ -366,60 +395,21 @@ final class YouTubeImportDiagnostic {
         status = "Extracting YouTube metadata in embedded Python…"
         job = Task {
             defer { isRunning = false; job = nil }
-            var temporaryFiles = YouTubeTemporaryFileScope()
-            defer { temporaryFiles.cleanup() }
             do {
-                var result = try await extractor.extract(video)
-                try Task.checkCancellation()
-                var downloadedURL: URL?
-                for attempt in 0...1 {
-                    status = attempt == 0 ? "Downloading AAC/M4A audio…" : "Refreshing the expired audio URL…"
-                    var request = URLRequest(url: result.format.url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 90)
-                    result.format.httpHeaders.forEach { key, value in request.setValue(value, forHTTPHeaderField: key) }
-                    let (candidateURL, response) = try await URLSession.shared.download(for: request)
-                    temporaryFiles.track(candidateURL)
-                    try Task.checkCancellation()
-                    guard let http = response as? HTTPURLResponse else { throw YouTubeImportError.downloadFailed }
-                    if YouTubeSignedURLRetryPolicy.shouldReextract(statusCode: http.statusCode, attempt: attempt) {
-                        try temporaryFiles.remove(candidateURL)
-                        result = try await extractor.extract(video)
-                        continue
+                let service = YouTubeAudioImportService(library: library, extractor: extractor)
+                let outcome = try await service.run(video) { [weak self] stage in
+                    guard let self else { return }
+                    switch stage {
+                    case .extracting: break
+                    case .downloading: self.status = "Downloading AAC/M4A audio…"
+                    case .refreshing: self.status = "Refreshing the expired audio URL…"
+                    case .importing: self.status = "Validating and importing into the music library…"
                     }
-                    guard (200..<300).contains(http.statusCode) else {
-                        throw YouTubeImportError.downloadFailed
-                    }
-                    downloadedURL = candidateURL
-                    break
                 }
-                guard let downloadedURL else { throw YouTubeImportError.downloadFailed }
-                let signature: Data
-                do {
-                    let dataHandle = try FileHandle(forReadingFrom: downloadedURL)
-                    defer { try? dataHandle.close() }
-                    signature = try dataHandle.read(upToCount: 12) ?? Data()
-                }
-                guard YouTubeAudioContainer.hasM4AFileType(signature) else {
-                    throw YouTubeImportError.invalidAudioContainer
-                }
-                VIPODPythonLog("Downloaded and verified an M4A ftyp container.")
-                let jobDirectory = FileManager.default.temporaryDirectory.appendingPathComponent("vipod-youtube-\(UUID().uuidString)", isDirectory: true)
-                try FileManager.default.createDirectory(at: jobDirectory, withIntermediateDirectories: false)
-                temporaryFiles.track(jobDirectory)
-                let stagedURL = jobDirectory.appendingPathComponent(Self.safeFilename(result.title) + ".m4a")
-                try temporaryFiles.move(downloadedURL, to: stagedURL)
-                try Task.checkCancellation()
-                status = "Validating and importing into the music library…"
-                guard let report = await library.importTracks(from: [stagedURL]) else {
-                    throw YouTubeImportError.extraction(library.errorMessage ?? "The library rejected this import job.")
-                }
-                guard let track = report.imported.first else {
-                    if report.wasCancelled { throw CancellationError() }
-                    let failure = report.failures.first?.message ?? library.errorMessage ?? "The downloaded audio was not imported."
-                    throw YouTubeImportError.extraction("Embedded extraction finished (\(Self.challengeSummary(result))); library import reported: \(failure)")
-                }
+                let track = outcome.track
                 importedTrackTitle = track.title
                 latestLocalTrackTitle = library.tracks.last?.title
-                if report.wasCancelled || Task.isCancelled {
+                if outcome.cancellationArrivedAfterCommit {
                     status = "Import cancellation arrived after “\(track.title)” was saved to the library. The saved track is shown above."
                     VIPODPythonLog("Import cancellation arrived after a track was committed; library report was retained.")
                 } else {
@@ -428,7 +418,7 @@ final class YouTubeImportDiagnostic {
                     switch playback.status {
                     case .playing:
                         VIPODPythonLog("Imported track \(track.id.uuidString); AVFoundation entered playing state. Signed media URL was not persisted or logged.")
-                        status = "Imported “\(track.title)” (\(result.id)); playback started; \(Self.challengeSummary(result)). Relaunch in Airplane Mode to verify offline playback."
+                        status = "Imported “\(track.title)” (\(outcome.extraction.id)); playback started; \(YouTubeAudioImportService.challengeSummary(outcome.extraction)). Relaunch in Airplane Mode to verify offline playback."
                     case .failed(let message):
                         status = "Imported “\(track.title)” into the library, but playback failed: \(message)"
                     default:
@@ -437,23 +427,13 @@ final class YouTubeImportDiagnostic {
                 }
             } catch is CancellationError {
                 status = "Import cancelled."
+            } catch let error as URLError where error.code == .cancelled {
+                status = "Import cancelled."
             } catch {
                 status = error.localizedDescription
             }
         }
     }
 
-    private static func challengeSummary(_ result: YouTubeExtractionResult) -> String {
-        result.webkitJSCChallengeCalls > 0
-            ? "Apple WebKit solved \(result.webkitJSCChallengeSuccesses)/\(result.webkitJSCChallengeCalls) N/Sig challenges"
-            : "Apple WebKit N/Sig challenge not exercised by this video"
-    }
-
-    private static func safeFilename(_ title: String) -> String {
-        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: " -_()"))
-        let cleaned = String(title.unicodeScalars.map { allowed.contains($0) ? Character($0) : "_" })
-            .trimmingCharacters(in: .whitespacesAndNewlines.union(CharacterSet(charactersIn: ".")))
-        return String((cleaned.isEmpty ? "YouTube Audio" : cleaned).prefix(100))
-    }
 }
 #endif

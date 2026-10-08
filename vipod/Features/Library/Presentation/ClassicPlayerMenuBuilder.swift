@@ -24,7 +24,7 @@ struct ClassicPlayerMenuBuilder {
     ) -> [ClassicPlayerRow] {
         switch destination {
         case .mainMenu:
-            return [
+            var rows = [
                 row("menu.music", String(localized: "Music"), .open(.music)),
                 row("menu.nowPlaying", String(localized: "Now Playing"), .open(.nowPlaying)),
                 row("menu.shuffle", String(localized: "Shuffle Songs"), .shuffle(tracks)),
@@ -32,6 +32,10 @@ struct ClassicPlayerMenuBuilder {
                 row("menu.settings", String(localized: "Settings"), .open(.settings)),
                 row("menu.import", String(localized: "Import Music"), .importMusic)
             ]
+            #if os(iOS)
+            rows.append(row("menu.youtubeDownloads", String(localized: "YouTube Downloads"), .youtubeDownloads))
+            #endif
+            return rows
         case .music:
             return [
                 row("music.favorites", String(localized: "Favorites"), .open(.favorites)),

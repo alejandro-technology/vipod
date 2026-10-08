@@ -133,6 +133,7 @@ final class FileTrackRepositoryTests: XCTestCase {
 
         XCTAssertEqual(report.imported.count, 1)
         XCTAssertEqual(report.failures.map(\.filename), [fixture.lastPathComponent])
+        XCTAssertEqual(report.failures.first?.reason, .duplicate)
         let reloaded = try FileTrackRepository(storageURL: root)
         let persistedTracks = try await reloaded.tracks()
         XCTAssertEqual(persistedTracks.count, 1)

@@ -1,6 +1,29 @@
 import XCTest
 
 final class ClassicPlayerUITests: XCTestCase {
+    func testYouTubeDownloadsIsAvailableFromNormalMenuAndRetainsValidationOnReopen() {
+        let app = XCUIApplication()
+        app.launchArguments = ["--uitesting-library-fixture", "--uitesting-reset-library"]
+        app.launch()
+
+        let entry = app.buttons["menu.youtubeDownloads"]
+        XCTAssertTrue(entry.waitForExistence(timeout: 15))
+        entry.tap()
+
+        let urlField = app.textFields["youtube.download.url"]
+        XCTAssertTrue(urlField.waitForExistence(timeout: 5))
+        urlField.tap()
+        urlField.typeText("invalid")
+        app.buttons["youtube.download.submit"].tap()
+        XCTAssertTrue(app.staticTexts["youtube.download.error"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["youtube.download.error"].label.contains("valid link"))
+
+        app.buttons["youtube.download.done"].tap()
+        XCTAssertTrue(entry.waitForExistence(timeout: 5))
+        entry.tap()
+        XCTAssertTrue(app.staticTexts["youtube.download.error"].waitForExistence(timeout: 5))
+    }
+
     func testNowPlayingControlsNeighborsAndBothThemes() {
         let app = XCUIApplication()
         app.launchArguments = ["--uitesting-library-fixture", "--uitesting-reset-library"]

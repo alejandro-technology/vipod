@@ -4,8 +4,15 @@ import XCTest
 @MainActor
 final class ClassicPlayerMenuTests: XCTestCase {
     func testMainAndMusicMenusExposeStableRowsAndDestinations() async {
-        let model = await makeModel()
+        let model = await makeModel(supportsYouTubeDownloads: true)
+        #if os(iOS)
+        XCTAssertEqual(model.rows.map(\.id), ["menu.music", "menu.nowPlaying", "menu.shuffle", "menu.queue", "menu.settings", "menu.import", "menu.youtubeDownloads"])
+        guard let youtubeRow = model.rows.first(where: { $0.id == "menu.youtubeDownloads" }), case .youtubeDownloads = youtubeRow.action else {
+            return XCTFail("Expected the YouTube Downloads menu action")
+        }
+        #else
         XCTAssertEqual(model.rows.map(\.id), ["menu.music", "menu.nowPlaying", "menu.shuffle", "menu.queue", "menu.settings", "menu.import"])
+        #endif
         let destinations: [(String, PlayerDestination)] = [
             ("menu.music", .music), ("menu.queue", .queue), ("menu.nowPlaying", .nowPlaying), ("menu.settings", .settings)
         ]
@@ -223,10 +230,12 @@ final class ClassicPlayerMenuTests: XCTestCase {
         Track(title: title, artist: artist, album: album, audioFilename: "\(title).mp3")
     }
 
-    private func makeModel(tracks: [Track] = [], audioConnection: AudioConnectionMonitor? = nil, deviceName: String = "iPod") async -> ClassicPlayerModel {
+    private func makeModel(tracks: [Track] = [], audioConnection: AudioConnectionMonitor? = nil, deviceName: String = "iPod", supportsYouTubeDownloads: Bool = false) async -> ClassicPlayerModel {
         let library = LibraryController(repository: MenuTestRepository(tracks: tracks))
         await library.load()
-        return ClassicPlayerModel(library: library, playback: PlaybackController(engine: MenuTestPlayback()), audioConnection: audioConnection, deviceName: deviceName)
+        let model = ClassicPlayerModel(library: library, playback: PlaybackController(engine: MenuTestPlayback()), audioConnection: audioConnection, deviceName: deviceName)
+        model.supportsYouTubeDownloads = supportsYouTubeDownloads
+        return model
     }
 }
 

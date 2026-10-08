@@ -13,6 +13,9 @@ final class AppDependencies {
     let library: LibraryController
     let collections: LibraryCollectionController
     let playback: PlaybackController
+    #if os(iOS)
+    let youtubeDownloads: YouTubeDownloadController
+    #endif
     let audioConnection: AudioConnectionMonitor
 
     #if canImport(MediaPlayer) && os(iOS)
@@ -36,6 +39,12 @@ final class AppDependencies {
         self.library = library
         self.collections = collections
         self.playback = playback
+        #if os(iOS)
+        let youtubeImport = YouTubeAudioImportService(library: library)
+        self.youtubeDownloads = YouTubeDownloadController(playback: playback) { video, update in
+            try await youtubeImport.run(video, update: update)
+        }
+        #endif
         self.audioConnection = audioConnection
 
         #if canImport(MediaPlayer) && os(iOS)
