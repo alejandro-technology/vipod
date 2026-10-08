@@ -1,18 +1,18 @@
 {
   "images" : [
     {
-      "filename" : "launch-mark-dark.pdf",
+      "filename" : "AppIcon512.png",
       "idiom" : "universal"
     },
     {
-      "filename" : "launch-mark-light.pdf",
-      "idiom" : "universal",
       "appearances" : [
         {
           "appearance" : "luminosity",
           "value" : "dark"
         }
-      ]
+      ],
+      "filename" : "AppIcon512 1.png",
+      "idiom" : "universal"
     }
   ],
   "info" : {
