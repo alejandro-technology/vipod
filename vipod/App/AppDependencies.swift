@@ -40,10 +40,38 @@ final class AppDependencies {
         self.collections = collections
         self.playback = playback
         #if os(iOS)
-        let youtubeImport = YouTubeAudioImportService(library: library)
-        self.youtubeDownloads = YouTubeDownloadController(playback: playback) { video, update in
-            try await youtubeImport.run(video, update: update)
+        #if DEBUG
+        let arguments = ProcessInfo.processInfo.arguments
+        if arguments.contains("--uitesting-youtube-download") {
+            let driver = YouTubeDownloadUITestFixture(library: library)
+            self.youtubeDownloads = YouTubeDownloadController(playback: playback, fixtureDriver: driver)
+        } else if arguments.contains("--uitesting-youtube-preview") {
+            let previewService = YouTubeAudioImportService(
+                extract: { video in
+                    let format = YouTubeAudioFormat(
+                        formatID: "fixture-aac", extensionName: "m4a", protocolName: "https",
+                        audioCodec: "mp4a.40.2", videoCodec: "none",
+                        url: URL(string: "https://media.example.test/signed-fixture")!,
+                        httpHeaders: [:], filesize: 16_000, bitrate: 128
+                    )
+                    return YouTubeExtractionResult(
+                        id: video.videoID, title: "Fixture Video Title", format: format, formats: [format],
+                        webkitJSCChallengeCalls: 0, webkitJSCChallengeSuccesses: 0,
+                        duration: 93, thumbnail: nil,
+                        channel: "Fixture Source Channel", uploadDate: "20261008",
+                        music: YouTubeMusicMetadata(title: "Fixture Track Title", artist: "Fixture Artist", album: "Fixture Album", albumArtist: "Fixture Album Artist", date: "2024-05", genre: "Jazz", trackNumber: "2/10", discNumber: "1/2")
+                    )
+                },
+                download: { _ in throw CancellationError() },
+                importFile: { _ in nil }
+            )
+            self.youtubeDownloads = YouTubeDownloadController(playback: playback, service: previewService)
+        } else {
+            self.youtubeDownloads = YouTubeDownloadController(playback: playback, service: YouTubeAudioImportService(library: library))
         }
+        #else
+        self.youtubeDownloads = YouTubeDownloadController(playback: playback, service: YouTubeAudioImportService(library: library))
+        #endif
         #endif
         self.audioConnection = audioConnection
 

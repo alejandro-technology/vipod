@@ -1,6 +1,34 @@
 import XCTest
 
 final class ClassicPlayerUITests: XCTestCase {
+    func testYouTubePreviewFixtureAnalyzesWithoutDownloadAndInvalidatesOnEdit() {
+        let app = XCUIApplication()
+        app.launchArguments = ["--uitesting-library-fixture", "--uitesting-reset-library", "--uitesting-youtube-preview"]
+        app.launch()
+
+        let entry = app.buttons["menu.youtubeDownloads"]
+        XCTAssertTrue(entry.waitForExistence(timeout: 15))
+        entry.tap()
+        let url = app.textFields["youtube.download.url"]
+        XCTAssertTrue(url.waitForExistence(timeout: 5))
+        url.tap()
+        url.typeText("https://youtu.be/abcdefghijk")
+        app.buttons["youtube.download.analyze"].tap()
+
+        XCTAssertTrue(app.staticTexts["youtube.preview.title"].waitForExistence(timeout: 5))
+        XCTAssertEqual(app.staticTexts["youtube.preview.title"].label, "Fixture Track Title")
+        XCTAssertTrue(app.staticTexts["Fixture Artist"].exists)
+        XCTAssertTrue(app.staticTexts["Source: Fixture Source Channel"].exists)
+        XCTAssertTrue(app.buttons["youtube.download.confirm"].exists)
+        XCTAssertFalse(app.staticTexts["youtube.download.savedTrack"].exists, "Analysis must not download or import audio.")
+
+        url.tap()
+        url.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 128))
+        url.typeText("lmnopqrstuv")
+        XCTAssertFalse(app.staticTexts["youtube.preview.title"].exists, "Editing the URL must invalidate the previous preview.")
+        XCTAssertTrue(app.buttons["youtube.download.analyze"].exists)
+    }
+
     func testYouTubeDownloadsIsAvailableFromNormalMenuAndRetainsValidationOnReopen() {
         let app = XCUIApplication()
         app.launchArguments = ["--uitesting-library-fixture", "--uitesting-reset-library"]
@@ -14,7 +42,7 @@ final class ClassicPlayerUITests: XCTestCase {
         XCTAssertTrue(urlField.waitForExistence(timeout: 5))
         urlField.tap()
         urlField.typeText("invalid")
-        app.buttons["youtube.download.submit"].tap()
+        app.buttons["youtube.download.analyze"].tap()
         XCTAssertTrue(app.staticTexts["youtube.download.error"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts["youtube.download.error"].label.contains("valid link"))
 

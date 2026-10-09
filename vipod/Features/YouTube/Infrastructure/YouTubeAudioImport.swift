@@ -36,18 +36,21 @@ nonisolated struct YouTubeAudioFormat: Decodable, Sendable {
     let url: URL
     let httpHeaders: [String: String]
     let filesize: Int64?
+    var filesizeApprox: Int64? = nil
     let bitrate: Double?
     var sourcePreference: Double? = nil
     var preference: Double? = nil
 
     enum CodingKeys: String, CodingKey {
-        case formatID, protocolName = "protocol", extensionName = "extension", audioCodec, videoCodec, url, httpHeaders, filesize, bitrate, sourcePreference = "source_preference", preference
+        case formatID, protocolName = "protocol", extensionName = "extension", audioCodec, videoCodec, url, httpHeaders, filesize, filesizeApprox = "filesize_approx", bitrate, sourcePreference = "source_preference", preference
     }
 
     var isCompatibleAAC: Bool {
         extensionName == "m4a"
             && protocolName == "https"
             && url.scheme?.lowercased() == "https"
+            && url.user == nil
+            && url.password == nil
             && audioCodec.lowercased().hasPrefix("mp4a")
             && videoCodec == "none"
             && url.fragment == nil
@@ -69,12 +72,13 @@ nonisolated struct YouTubeFormatCandidate: Decodable, Sendable {
     let url: URL?
     let httpHeaders: [String: String]?
     let filesize: Int64?
+    var filesizeApprox: Int64? = nil
     let bitrate: Double?
     var sourcePreference: Double? = nil
     var preference: Double? = nil
 
     enum CodingKeys: String, CodingKey {
-        case formatID, protocolName = "protocol", extensionName = "extension", audioCodec, videoCodec, url, httpHeaders, filesize, bitrate, sourcePreference = "source_preference", preference
+        case formatID, protocolName = "protocol", extensionName = "extension", audioCodec, videoCodec, url, httpHeaders, filesize, filesizeApprox = "filesize_approx", bitrate, sourcePreference = "source_preference", preference
     }
 
     var directAudioFormat: YouTubeAudioFormat? {
@@ -89,6 +93,7 @@ nonisolated struct YouTubeFormatCandidate: Decodable, Sendable {
             url: url,
             httpHeaders: httpHeaders ?? [:],
             filesize: filesize,
+            filesizeApprox: filesizeApprox,
             bitrate: bitrate,
             sourcePreference: sourcePreference,
             preference: preference
@@ -103,6 +108,11 @@ nonisolated struct YouTubeExtractionResult: Sendable {
     let formats: [YouTubeAudioFormat]
     let webkitJSCChallengeCalls: Int
     let webkitJSCChallengeSuccesses: Int
+    var duration: Double? = nil
+    var thumbnail: URL? = nil
+    var channel: String? = nil
+    var uploadDate: String? = nil
+    var music: YouTubeMusicMetadata? = nil
 
     func selecting(_ selectedFormat: YouTubeAudioFormat) -> YouTubeExtractionResult {
         YouTubeExtractionResult(
@@ -111,7 +121,12 @@ nonisolated struct YouTubeExtractionResult: Sendable {
             format: selectedFormat,
             formats: formats,
             webkitJSCChallengeCalls: webkitJSCChallengeCalls,
-            webkitJSCChallengeSuccesses: webkitJSCChallengeSuccesses
+            webkitJSCChallengeSuccesses: webkitJSCChallengeSuccesses,
+            duration: duration,
+            thumbnail: thumbnail,
+            channel: channel,
+            uploadDate: uploadDate,
+            music: music
         )
     }
 }
@@ -123,6 +138,53 @@ nonisolated struct YouTubeExtraction: Decodable, Sendable {
     let formats: [YouTubeFormatCandidate]
     let webkitJSCChallengeCalls: Int
     let webkitJSCChallengeSuccesses: Int
+    var duration: Double? = nil
+    var thumbnail: URL? = nil
+    var channel: String? = nil
+    var uploadDate: String? = nil
+    var music: YouTubeMusicMetadata? = nil
+}
+
+nonisolated struct YouTubeMusicMetadata: Decodable, Sendable {
+    let title: String?
+    let artist: String?
+    let album: String?
+    let albumArtist: String?
+    let date: String?
+    let genre: String?
+    let trackNumber: String?
+    let discNumber: String?
+
+    enum CodingKeys: String, CodingKey {
+        case title, artist, album, albumArtist, date, genre, trackNumber, discNumber
+    }
+}
+
+/// URL-free preview data safe to expose to presentation and retain in controller state.
+nonisolated struct YouTubeVideoPreview: Equatable, Sendable {
+    let videoID: String
+    let videoTitle: String
+    let duration: Double?
+    let thumbnailURL: URL?
+    let channel: String?
+    let uploadDate: String?
+    let effectiveMetadata: YouTubeEffectiveMetadata
+    let formats: [YouTubePreviewFormat]
+}
+
+nonisolated struct YouTubePreviewFormat: Equatable, Sendable {
+    let formatID: String
+    let bitrate: Double?
+    let filesize: Int64?
+    let filesizeApprox: Int64?
+}
+
+/// Carries the internal signed extraction only in memory for reuse by the service.
+nonisolated struct YouTubePreparedDownload: Sendable {
+    let preview: YouTubeVideoPreview
+    let operationID: UUID
+    let extractedAt: Date
+    let extraction: YouTubeExtractionResult
 }
 
 nonisolated enum YouTubeImportError: LocalizedError {
@@ -131,6 +193,9 @@ nonisolated enum YouTubeImportError: LocalizedError {
     case noCompatibleAudio
     case insecureFormat
     case invalidAudioContainer
+    case artworkUnavailable
+    case taggingFailed
+    case metadataVerificationFailed
     case downloadFailed
     case httpFailure(Int)
     case duplicateImport
@@ -146,6 +211,9 @@ nonisolated enum YouTubeImportError: LocalizedError {
         case .noCompatibleAudio: "No direct HTTPS AAC/M4A audio format is available for this video."
         case .insecureFormat: "The selected audio format did not provide a secure HTTPS URL."
         case .invalidAudioContainer: "The downloaded file is not a valid M4A audio container."
+        case .artworkUnavailable: "Artwork could not be prepared."
+        case .taggingFailed: "Metadata could not be embedded in the M4A file."
+        case .metadataVerificationFailed: "The embedded metadata could not be verified."
         case .downloadFailed: "The audio download could not be completed."
         case .httpFailure(let statusCode): "The audio server returned HTTP status \(statusCode)."
         case .duplicateImport: "This audio is already in your music library."
@@ -309,6 +377,11 @@ nonisolated final class EmbeddedYouTubeExtractor: @unchecked Sendable {
         let usableFormats = extraction.formats.compactMap(\.directAudioFormat)
         guard let format = YouTubeAudioFormat.best(from: usableFormats) else { throw YouTubeImportError.noCompatibleAudio }
         guard format.url.scheme?.lowercased() == "https" else { throw YouTubeImportError.insecureFormat }
+        let thumbnail = extraction.thumbnail.flatMap { url -> URL? in
+            guard url.scheme?.lowercased() == "https",
+                  ["i.ytimg.com", "img.youtube.com"].contains(url.host?.lowercased() ?? "") else { return nil }
+            return url
+        }
         let preference = format.preference.map { String($0) } ?? "unset"
         let sourcePreference = format.sourcePreference.map { String($0) } ?? "unset"
         VIPODPythonLog("Extracted \(extraction.id) (\(extraction.title)); selected yt-dlp-ranked format \(format.formatID) from \(usableFormats.filter(\.isCompatibleAAC).count) compatible HTTPS AAC formats; preference=\(preference), sourcePreference=\(sourcePreference), challenge=\(extraction.webkitJSCChallengeSuccesses)/\(extraction.webkitJSCChallengeCalls). Signed URL suppressed.")
@@ -318,7 +391,12 @@ nonisolated final class EmbeddedYouTubeExtractor: @unchecked Sendable {
             format: format,
             formats: usableFormats.filter(\.isCompatibleAAC).reversed(),
             webkitJSCChallengeCalls: extraction.webkitJSCChallengeCalls,
-            webkitJSCChallengeSuccesses: extraction.webkitJSCChallengeSuccesses
+            webkitJSCChallengeSuccesses: extraction.webkitJSCChallengeSuccesses,
+            duration: extraction.duration.flatMap { $0.isFinite && $0 >= 0 ? $0 : nil },
+            thumbnail: thumbnail,
+            channel: extraction.channel,
+            uploadDate: extraction.uploadDate,
+            music: extraction.music
         )
     }
 
@@ -403,6 +481,9 @@ final class YouTubeImportDiagnostic {
                     case .extracting: break
                     case .downloading: self.status = "Downloading AAC/M4A audio…"
                     case .refreshing: self.status = "Refreshing the expired audio URL…"
+                    case .preparingArtwork: self.status = "Preparing thumbnail artwork…"
+                    case .tagging: self.status = "Embedding music metadata…"
+                    case .validating: self.status = "Verifying embedded audio metadata…"
                     case .importing: self.status = "Validating and importing into the music library…"
                     }
                 }

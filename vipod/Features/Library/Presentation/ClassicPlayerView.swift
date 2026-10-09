@@ -90,7 +90,7 @@ public struct ClassicPlayerView: View {
             onCancellation: model.importerCancelled
         )
         #if os(iOS)
-        .sheet(isPresented: $model.isYouTubeDownloadsPresented) {
+        .fullScreenCover(isPresented: $model.isYouTubeDownloadsPresented) {
             if let youtubeDownloads {
                 YouTubeDownloadView(controller: youtubeDownloads)
             }

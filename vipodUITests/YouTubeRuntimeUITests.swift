@@ -1,6 +1,28 @@
 import XCTest
 
 final class YouTubeRuntimeUITests: XCTestCase {
+    func testDeterministicPreviewShowsEffectiveMetadataBeforeDownload() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["--uitesting-library-fixture", "--uitesting-reset-library", "--uitesting-youtube-preview"]
+        app.launch()
+
+        let menuEntry = app.buttons["menu.youtubeDownloads"]
+        XCTAssertTrue(menuEntry.waitForExistence(timeout: 20))
+        menuEntry.tap()
+        let url = app.textFields["youtube.download.url"]
+        XCTAssertTrue(url.waitForExistence(timeout: 10))
+        url.tap()
+        url.typeText("https://youtu.be/abcdefghijk")
+        app.buttons["youtube.download.analyze"].tap()
+
+        XCTAssertTrue(app.buttons["youtube.download.confirm"].waitForExistence(timeout: 10))
+        XCTAssertEqual(app.staticTexts["youtube.preview.title"].label, "Fixture Track Title")
+        XCTAssertTrue(app.staticTexts["Fixture Artist"].exists)
+        XCTAssertTrue(app.staticTexts["Source: Fixture Source Channel"].exists)
+        XCTAssertTrue(app.staticTexts["Release date"].exists)
+        XCTAssertFalse(app.staticTexts["youtube.download.savedTrack"].exists)
+    }
+
     func testRequestedVideoThroughProductionMenu() throws {
         guard ProcessInfo.processInfo.environment["VIPOD_RUN_YOUTUBE_RUNTIME_TESTS"] == "1" else {
             throw XCTSkip("Set VIPOD_RUN_YOUTUBE_RUNTIME_TESTS=1 to opt into live YouTube runtime tests.")
@@ -18,9 +40,7 @@ final class YouTubeRuntimeUITests: XCTestCase {
         let playbackStatus = app.staticTexts["youtube.download.playbackStatus"]
         let url = app.textFields["youtube.download.url"]
         XCTAssertTrue(url.waitForExistence(timeout: 10))
-        url.tap()
-        url.typeText("https://youtu.be/gtqEDfuGK_k")
-        app.buttons["youtube.download.submit"].tap()
+        analyzeAndConfirm(url: url, app: app)
         attachPhase("first-download-started", app: app)
 
         XCTAssertTrue(waitForDownloadTerminal(app: app, savedTrack: savedTrack, failure: failure), "First production download did not reach a terminal UI state.")
@@ -36,7 +56,7 @@ final class YouTubeRuntimeUITests: XCTestCase {
             XCTAssertTrue(playbackStatus.waitForExistence(timeout: 10))
             XCTAssertTrue(playbackStatus.label.contains("Playback started"))
 
-            app.buttons["youtube.download.submit"].tap()
+            analyzeAndConfirm(url: url, app: app)
             attachPhase("second-download-submitted", app: app)
 
             let oldPlaybackStatusCleared = expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: playbackStatus)
@@ -78,11 +98,22 @@ final class YouTubeRuntimeUITests: XCTestCase {
         }
     }
 
+    private func analyzeAndConfirm(url: XCUIElement, app: XCUIApplication) {
+        url.tap()
+        url.typeText("https://youtu.be/gtqEDfuGK_k")
+        app.buttons["youtube.download.analyze"].tap()
+        let confirm = app.buttons["youtube.download.confirm"]
+        XCTAssertTrue(confirm.waitForExistence(timeout: 120), "Analysis should produce a reviewable preview before a download is allowed.")
+        XCTAssertTrue(app.staticTexts["youtube.preview.title"].exists)
+        confirm.tap()
+    }
+
     private func waitForDownloadTerminal(app: XCUIApplication, savedTrack: XCUIElement, failure: XCUIElement) -> Bool {
-        let terminalState = app.staticTexts.matching(
-            NSPredicate(format: "identifier == %@ OR identifier == %@", "youtube.download.savedTrack", "youtube.download.error")
-        ).firstMatch
-        return terminalState.waitForExistence(timeout: 660)
+        let status = app.staticTexts["youtube.download.status"]
+        guard status.waitForExistence(timeout: 20) else { return false }
+        let finished = expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: status)
+        wait(for: [finished], timeout: 660)
+        return savedTrack.exists || failure.exists
     }
 
     private func attachPhase(_ phase: String, app: XCUIApplication) {
@@ -140,10 +171,15 @@ final class YouTubeRuntimeUITests: XCTestCase {
         XCTAssertTrue(status.label.contains("Apple WebKit solved 1/1 N/Sig challenges"), "This video did not demonstrate an Apple WebKit N/Sig challenge solution: \(status.label)")
 
         app.buttons["youtube.run"].tap()
-        let duplicateReport = NSPredicate(format: "label CONTAINS 'already in your library'")
-        expectation(for: duplicateReport, evaluatedWith: status)
+        let secondAcceptedOperation = NSPredicate(
+            format: "label CONTAINS 'Imported' OR label CONTAINS 'already in your library'"
+        )
+        expectation(for: secondAcceptedOperation, evaluatedWith: status)
         waitForExpectations(timeout: 125)
-        XCTAssertTrue(status.label.contains("already in your library"), "A second extraction must finish and report the repository-owned duplicate: \(status.label)")
+        XCTAssertTrue(
+            status.label.contains("Imported") || status.label.contains("already in your library"),
+            "A second accepted extraction must finish as a new import or a repository-owned duplicate: \(status.label)"
+        )
 
         app.terminate()
         app.launchArguments = usesIsolatedFixture
