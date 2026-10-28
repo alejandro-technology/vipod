@@ -28,6 +28,30 @@ struct YouTubeAudioImportService {
         let attempt: Int
         let completedBytes: Int64
         let expectedBytes: Int64?
+        let isEstimated: Bool
+
+        init(
+            operationID: UUID,
+            attempt: Int,
+            completedBytes: Int64,
+            expectedBytes: Int64?,
+            fallbackExpectedBytes: Int64? = nil,
+            fallbackIsEstimated: Bool = false
+        ) {
+            self.operationID = operationID
+            self.attempt = attempt
+            self.completedBytes = completedBytes
+            if let expectedBytes, expectedBytes > 0 {
+                self.expectedBytes = expectedBytes
+                self.isEstimated = false
+            } else if let fallbackExpectedBytes, fallbackExpectedBytes > 0 {
+                self.expectedBytes = fallbackExpectedBytes
+                self.isEstimated = fallbackIsEstimated
+            } else {
+                self.expectedBytes = nil
+                self.isEstimated = false
+            }
+        }
 
         var fractionCompleted: Double? {
             guard let expectedBytes, expectedBytes > 0 else { return nil }
@@ -37,7 +61,14 @@ struct YouTubeAudioImportService {
 
     typealias Extract = @MainActor (YouTubeVideoURL) async throws -> YouTubeExtractionResult
     typealias Download = @MainActor (URLRequest) async throws -> (URL, URLResponse)
-    typealias Transfer = @MainActor (URLRequest, UUID, Int, @escaping @MainActor (DownloadProgress) -> Void) async throws -> (URL, URLResponse)
+    typealias Transfer = @MainActor (
+        URLRequest,
+        UUID,
+        Int,
+        Int64?,
+        Bool,
+        @escaping @MainActor (DownloadProgress) -> Void
+    ) async throws -> (URL, URLResponse)
     typealias Import = @MainActor (URL) async -> TrackImportReport?
     typealias Tag = @MainActor (URL, YouTubeEffectiveMetadata, Data?) async throws -> URL
     typealias Artwork = @MainActor (URL) async throws -> Data
@@ -52,8 +83,14 @@ struct YouTubeAudioImportService {
 
     init(library: LibraryController, extractor: EmbeddedYouTubeExtractor = .shared) {
         self.extract = { try await extractor.extract($0) }
-        self.downloadRequest = { request, operationID, attempt, progress in
-            let delegate = YouTubeTransferDelegate(operationID: operationID, attempt: attempt, progress: progress)
+        self.downloadRequest = { request, operationID, attempt, expectedBytes, expectedBytesAreEstimated, progress in
+            let delegate = YouTubeTransferDelegate(
+                operationID: operationID,
+                attempt: attempt,
+                expectedBytes: expectedBytes,
+                expectedBytesAreEstimated: expectedBytesAreEstimated,
+                progress: progress
+            )
             return try await URLSession.shared.download(for: request, delegate: delegate)
         }
         self.importFile = { await library.importTracks(from: [$0]) }
@@ -75,7 +112,7 @@ struct YouTubeAudioImportService {
         passthroughAAC: @escaping PassthroughAAC = { _ in true }
     ) {
         self.extract = extract
-        self.downloadRequest = { request, operationID, attempt, progress in
+        self.downloadRequest = { request, operationID, attempt, _, _, progress in
             let (url, response) = try await download(request)
             let expected = response.expectedContentLength > 0 ? response.expectedContentLength : nil
             progress(DownloadProgress(operationID: operationID, attempt: attempt, completedBytes: expected ?? 0, expectedBytes: expected))
@@ -165,8 +202,26 @@ struct YouTubeAudioImportService {
             update(.downloading)
             var request = URLRequest(url: format.url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 90)
             format.httpHeaders.forEach { request.setValue($1, forHTTPHeaderField: $0) }
-            progress(DownloadProgress(operationID: prepared.operationID, attempt: attempt, completedBytes: 0, expectedBytes: format.filesize))
-            let (candidateURL, response) = try await downloadRequest(request, prepared.operationID, attempt, progress)
+            let exactExpectedBytes = format.filesize.flatMap { $0 > 0 ? $0 : nil }
+            let approximateExpectedBytes = format.filesizeApprox.flatMap { $0 > 0 ? $0 : nil }
+            let expectedBytes = exactExpectedBytes ?? approximateExpectedBytes
+            let expectedBytesAreEstimated = exactExpectedBytes == nil && approximateExpectedBytes != nil
+            progress(DownloadProgress(
+                operationID: prepared.operationID,
+                attempt: attempt,
+                completedBytes: 0,
+                expectedBytes: exactExpectedBytes,
+                fallbackExpectedBytes: approximateExpectedBytes,
+                fallbackIsEstimated: true
+            ))
+            let (candidateURL, response) = try await downloadRequest(
+                request,
+                prepared.operationID,
+                attempt,
+                expectedBytes,
+                expectedBytesAreEstimated,
+                progress
+            )
             temporaryFiles.track(candidateURL)
             try Task.checkCancellation()
             guard let http = response as? HTTPURLResponse else { throw YouTubeImportError.downloadFailed }
@@ -370,17 +425,34 @@ struct YouTubeAudioImportService {
 private final class YouTubeTransferDelegate: NSObject, URLSessionDownloadDelegate, @unchecked Sendable {
     private let operationID: UUID
     private let attempt: Int
+    private let expectedBytes: Int64?
+    private let expectedBytesAreEstimated: Bool
     private let progress: @MainActor (YouTubeAudioImportService.DownloadProgress) -> Void
 
-    init(operationID: UUID, attempt: Int, progress: @escaping @MainActor (YouTubeAudioImportService.DownloadProgress) -> Void) {
+    init(
+        operationID: UUID,
+        attempt: Int,
+        expectedBytes: Int64?,
+        expectedBytesAreEstimated: Bool = false,
+        progress: @escaping @MainActor (YouTubeAudioImportService.DownloadProgress) -> Void
+    ) {
         self.operationID = operationID
         self.attempt = attempt
+        self.expectedBytes = expectedBytes
+        self.expectedBytesAreEstimated = expectedBytesAreEstimated
         self.progress = progress
     }
 
     func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didWriteData bytesWritten: Int64, totalBytesWritten: Int64, totalBytesExpectedToWrite: Int64) {
         let expected = totalBytesExpectedToWrite > 0 ? totalBytesExpectedToWrite : nil
-        let event = YouTubeAudioImportService.DownloadProgress(operationID: operationID, attempt: attempt, completedBytes: max(0, totalBytesWritten), expectedBytes: expected)
+        let event = YouTubeAudioImportService.DownloadProgress(
+            operationID: operationID,
+            attempt: attempt,
+            completedBytes: max(0, totalBytesWritten),
+            expectedBytes: expected,
+            fallbackExpectedBytes: expectedBytes,
+            fallbackIsEstimated: expectedBytesAreEstimated
+        )
         Task { @MainActor [progress] in progress(event) }
     }
 

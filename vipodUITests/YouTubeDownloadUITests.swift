@@ -33,6 +33,14 @@ final class YouTubeDownloadUITests: XCTestCase {
         XCTAssertEqual(app.progressIndicators.matching(NSPredicate(format: "label == %@", "Audio download progress")).firstMatch.value as? String, "25 percent")
         XCTAssertTrue(app.staticTexts["youtube.download.status"].label.contains("Downloading"))
         XCTAssertFalse(app.staticTexts["youtube.download.savedTrack"].exists)
+        let previewCard = app.otherElements["youtube.download.preview"]
+        let transferCard = app.otherElements["youtube.download.workStatus"]
+        let musicBrainzHeading = app.staticTexts["youtube.musicbrainz.heading"]
+        XCTAssertTrue(previewCard.exists)
+        XCTAssertTrue(transferCard.exists)
+        XCTAssertTrue(musicBrainzHeading.exists)
+        XCTAssertLessThan(previewCard.frame.maxY, transferCard.frame.minY)
+        XCTAssertLessThan(transferCard.frame.maxY, musicBrainzHeading.frame.minY)
 
         app.buttons["youtube.download.done"].tap()
         XCTAssertTrue(menu.waitForExistence(timeout: 10))
@@ -149,15 +157,40 @@ final class YouTubeDownloadUITests: XCTestCase {
 
         let recording = app.buttons["youtube.musicbrainz.recording.0"]
         XCTAssertTrue(recording.waitForExistence(timeout: 10))
+        XCTAssertTrue(recording.label.contains("Electronic"))
+        XCTAssertTrue(recording.label.contains("First released 2001-02-03"))
+        XCTAssertTrue(recording.label.contains("1 album edition"))
         scrollUntilHittable(recording, in: app)
         recording.tap()
+
+        let stepTitle = app.staticTexts["youtube.musicbrainz.stepTitle"]
+        let back = app.buttons["youtube.musicbrainz.back"]
+        XCTAssertEqual(stepTitle.label, "Choose an album")
+        XCTAssertEqual(back.label, "Back to recordings")
         let release = app.buttons["youtube.musicbrainz.release.0"]
         XCTAssertTrue(release.waitForExistence(timeout: 10))
+        XCTAssertTrue(release.label.contains("2001-02-03"))
+        XCTAssertTrue(release.label.contains("1 track"))
         scrollUntilHittable(release, in: app)
         release.tap()
+
         let track = app.buttons["youtube.musicbrainz.track.0"]
         XCTAssertTrue(track.waitForExistence(timeout: 10))
-        scrollUntilHittable(track, in: app)
+        XCTAssertEqual(stepTitle.label, "Choose a track")
+        XCTAssertEqual(back.label, "Back to albums")
+        XCTAssertTrue(track.label.contains("MusicBrainz Fixture Artist"))
+        XCTAssertTrue(track.label.contains("Track 1 of 1"))
+        XCTAssertTrue(track.label.contains("Disc 1 of 1"))
+
+        back.tap()
+        XCTAssertTrue(release.waitForExistence(timeout: 5), "Back should return to the album list.")
+        XCTAssertFalse(track.exists, "Only the active step's list should be displayed.")
+        back.tap()
+        XCTAssertTrue(recording.waitForExistence(timeout: 5), "Back should return to the recording list.")
+        XCTAssertFalse(release.exists, "Album choices should be hidden while choosing a recording.")
+        recording.tap()
+        release.tap()
+        XCTAssertTrue(track.waitForExistence(timeout: 10))
         XCTAssertFalse(track.isSelected)
         XCTAssertEqual(track.value as? String, "Not selected")
         track.tap()

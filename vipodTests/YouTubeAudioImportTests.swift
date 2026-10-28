@@ -592,6 +592,31 @@ final class YouTubeAudioImportTests: XCTestCase {
         XCTAssertEqual(outcome.artworkWarning, "Artwork could not be downloaded; the audio will be saved without artwork.")
     }
 
+    func testApproximateDownloadLengthProvidesClearlyEstimatedProgressUntilServerReportsLength() {
+        let operationID = UUID()
+        let estimated = YouTubeAudioImportService.DownloadProgress(
+            operationID: operationID,
+            attempt: 0,
+            completedBytes: 1_000,
+            expectedBytes: nil,
+            fallbackExpectedBytes: 4_000,
+            fallbackIsEstimated: true
+        )
+        XCTAssertEqual(estimated.fractionCompleted, 0.25)
+        XCTAssertTrue(estimated.isEstimated)
+
+        let reported = YouTubeAudioImportService.DownloadProgress(
+            operationID: operationID,
+            attempt: 0,
+            completedBytes: 1_000,
+            expectedBytes: 5_000,
+            fallbackExpectedBytes: 4_000,
+            fallbackIsEstimated: true
+        )
+        XCTAssertEqual(reported.fractionCompleted, 0.2)
+        XCTAssertFalse(reported.isEstimated, "A response-reported content length supersedes yt-dlp's estimate.")
+    }
+
     @MainActor
     func testKnownDownloadLengthProducesClampedProgress() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("youtube-known-progress-\(UUID().uuidString)", isDirectory: true)

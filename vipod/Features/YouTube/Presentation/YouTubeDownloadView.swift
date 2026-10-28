@@ -5,9 +5,26 @@ import UIKit
 
 #if os(iOS)
 struct YouTubeDownloadView: View {
+    private enum MusicBrainzStep: Int {
+        case recordings = 1
+        case releases
+        case tracks
+
+        var title: String {
+            switch self {
+            case .recordings: "Choose a recording"
+            case .releases: "Choose an album"
+            case .tracks: "Choose a track"
+            }
+        }
+    }
+
     @Bindable private var controller: YouTubeDownloadController
     @Environment(\.dismiss) private var dismiss
     @AppStorage("vipod.theme") private var themePreference = "black"
+    @State private var musicBrainzStep: MusicBrainzStep = .recordings
+
+    private var colorScheme: ColorScheme { themePreference == "white" ? .light : .dark }
 
     init(controller: YouTubeDownloadController) { self.controller = controller }
 
@@ -18,10 +35,12 @@ struct YouTubeDownloadView: View {
                     linkEntry
                     if let preview = controller.retainedPreview {
                         previewCard(preview)
+                        if isWorking { workStatus }
                         musicBrainzSearch
                         metadataEditor
+                    } else if isWorking {
+                        workStatus
                     }
-                    if isWorking { workStatus }
                     if case .failed(let message) = controller.state { failure(message) }
                     if case .cancelled = controller.state {
                         Text("Download stopped. Any track already saved remains in your library.")
@@ -43,7 +62,10 @@ struct YouTubeDownloadView: View {
                 }
             }
         }
-        .preferredColorScheme(themePreference == "white" ? .light : .dark)
+        .preferredColorScheme(colorScheme)
+        .onChange(of: controller.musicBrainzQuery) { _, _ in
+            musicBrainzStep = .recordings
+        }
     }
 
     private var linkEntry: some View {
@@ -238,7 +260,9 @@ struct YouTubeDownloadView: View {
 
     private var musicBrainzSearch: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Find a recording with MusicBrainz").font(.subheadline.weight(.semibold))
+            Text("Find a recording with MusicBrainz")
+                .font(.subheadline.weight(.semibold))
+                .accessibilityIdentifier("youtube.musicbrainz.heading")
             TextField("Search title", text: $controller.musicBrainzQuery)
                 .textFieldStyle(.roundedBorder)
                 .textInputAutocapitalization(.words)
@@ -246,7 +270,7 @@ struct YouTubeDownloadView: View {
                 .disabled(controller.isBusy)
                 .accessibilityLabel("MusicBrainz search title")
                 .accessibilityIdentifier("youtube.musicbrainz.query")
-            Button(action: controller.searchMusicBrainz) {
+            Button(action: searchMusicBrainz) {
                 Label("Search MusicBrainz", systemImage: "magnifyingglass")
                     .frame(maxWidth: .infinity)
             }
@@ -280,86 +304,258 @@ struct YouTubeDownloadView: View {
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14))
     }
 
+    private func searchMusicBrainz() {
+        musicBrainzStep = .recordings
+        controller.searchMusicBrainz()
+    }
+
     private var musicBrainzResults: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .center, spacing: 12) {
+                if musicBrainzStep != .recordings {
+                    Button(action: goToPreviousMusicBrainzStep) {
+                        Label("Back", systemImage: "chevron.left")
+                    }
+                    .buttonStyle(.bordered)
+                    .accessibilityLabel(musicBrainzStep == .tracks ? "Back to albums" : "Back to recordings")
+                    .accessibilityIdentifier("youtube.musicbrainz.back")
+                }
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Step \(musicBrainzStep.rawValue) of 3")
+                        .font(.caption).foregroundStyle(.secondary)
+                        .accessibilityIdentifier("youtube.musicbrainz.stepCount")
+                    Text(musicBrainzStep.title)
+                        .font(.subheadline.weight(.semibold))
+                        .accessibilityIdentifier("youtube.musicbrainz.stepTitle")
+                }
+                Spacer()
+            }
+
+            switch musicBrainzStep {
+            case .recordings:
+                recordingOptions
+            case .releases:
+                releaseOptions
+            case .tracks:
+                trackOptions
+            }
+        }
+    }
+
+    private var recordingOptions: some View {
         VStack(alignment: .leading, spacing: 8) {
+            Text("Choose the matching song recording. Artist, genre, original release date and album count can help distinguish versions.")
+                .font(.caption).foregroundStyle(.secondary)
             ForEach(Array(controller.musicBrainzRecordings.enumerated()), id: \.offset) { index, recording in
+                let selected = controller.selectedMusicBrainzRecordingID == recording.id
                 Button {
                     controller.selectMusicBrainzRecording(recording.id)
+                    musicBrainzStep = .releases
                 } label: {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(recording.title).font(.subheadline.weight(.medium))
-                        if let artist = recording.artist { Text(artist).font(.caption).foregroundStyle(.secondary) }
+                    HStack(spacing: 10) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(recording.title).font(.subheadline.weight(.semibold))
+                            Text(recording.artist ?? "Artist unavailable")
+                                .font(.caption).foregroundStyle(.secondary)
+                            Text(recordingInfo(recording))
+                                .font(.caption2).foregroundStyle(.secondary)
+                        }
+                        Spacer(minLength: 4)
+                        Image(systemName: selected ? "checkmark.circle.fill" : "chevron.right")
+                            .foregroundStyle(selected ? Color.accentColor : Color.secondary)
+                            .accessibilityHidden(true)
                     }
+                    .padding(10)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .contentShape(Rectangle())
+                    .background(selected ? Color.accentColor.opacity(0.1) : Color.clear, in: RoundedRectangle(cornerRadius: 10))
+                    .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Color.secondary.opacity(0.25)))
+                    .contentShape(RoundedRectangle(cornerRadius: 10))
                 }
                 .buttonStyle(.plain)
                 .disabled(controller.isBusy)
                 .accessibilityIdentifier("youtube.musicbrainz.recording.\(index)")
-                if controller.selectedMusicBrainzRecordingID == recording.id {
-                    ForEach(Array(recording.releases.enumerated()), id: \.offset) { releaseIndex, release in
-                        Button {
-                            controller.selectMusicBrainzRelease(release.id)
-                        } label: {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(release.title)
-                                if let artist = release.artist { Text(artist).font(.caption).foregroundStyle(.secondary) }
-                            }
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                        }
-                        .buttonStyle(.bordered)
-                        .disabled(controller.isBusy)
-                        .accessibilityIdentifier("youtube.musicbrainz.release.\(releaseIndex)")
-                        if controller.selectedMusicBrainzReleaseID == release.id {
-                            selectedReleaseTracks
-                        }
-                    }
-                    if recording.releases.isEmpty {
-                        Text("No releases were included for this recording.")
-                            .font(.caption).foregroundStyle(.secondary)
-                    }
-                }
+                .accessibilityLabel("\(recording.title), \(recording.artist ?? "Artist unavailable"), \(recordingInfo(recording))")
+                .accessibilityValue(selected ? "Selected" : "Not selected")
             }
         }
     }
 
     @ViewBuilder
-    private var selectedReleaseTracks: some View {
-        if controller.isLoadingMusicBrainzRelease {
-            ProgressView("Loading release tracks…")
-                .accessibilityIdentifier("youtube.musicbrainz.releaseLoading")
-        } else if let release = controller.selectedMusicBrainzRelease {
-            ForEach(Array(release.tracks.enumerated()), id: \.offset) { index, track in
-                Button {
-                    controller.selectMusicBrainzTrack(track.id)
-                } label: {
-                    HStack {
-                        Text(track.number.map(String.init) ?? "—")
-                            .foregroundStyle(.secondary)
-                        Text(track.title)
-                        Spacer()
-                        if controller.selectedMusicBrainzTrackID == track.id {
-                            Image(systemName: "checkmark").accessibilityHidden(true)
+    private var releaseOptions: some View {
+        if let recording = selectedMusicBrainzRecording {
+            VStack(alignment: .leading, spacing: 8) {
+                selectedMusicBrainzSummary(title: "Recording", value: recording.title, detail: recording.artist)
+                Text("Choose an album edition. Release date and track count help identify the right pressing.")
+                    .font(.caption).foregroundStyle(.secondary)
+                ForEach(Array(recording.releases.enumerated()), id: \.offset) { index, release in
+                    let selected = controller.selectedMusicBrainzReleaseID == release.id
+                    Button {
+                        controller.selectMusicBrainzRelease(release.id)
+                        musicBrainzStep = .tracks
+                    } label: {
+                        HStack(spacing: 10) {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(release.title).font(.subheadline.weight(.semibold))
+                                Text(release.artist ?? "Album artist unavailable")
+                                    .font(.caption).foregroundStyle(.secondary)
+                                Text(releaseInfo(release))
+                                    .font(.caption2).foregroundStyle(.secondary)
+                            }
+                            Spacer(minLength: 4)
+                            Image(systemName: selected ? "checkmark.circle.fill" : "chevron.right")
+                                .foregroundStyle(selected ? Color.accentColor : Color.secondary)
+                                .accessibilityHidden(true)
                         }
+                        .padding(10)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(selected ? Color.accentColor.opacity(0.1) : Color.clear, in: RoundedRectangle(cornerRadius: 10))
+                        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Color.secondary.opacity(0.25)))
+                        .contentShape(RoundedRectangle(cornerRadius: 10))
                     }
+                    .buttonStyle(.plain)
+                    .disabled(controller.isBusy)
+                    .accessibilityIdentifier("youtube.musicbrainz.release.\(index)")
+                    .accessibilityLabel("\(release.title), \(release.artist ?? "Album artist unavailable"), \(releaseInfo(release))")
+                    .accessibilityValue(selected ? "Selected" : "Not selected")
                 }
-                .buttonStyle(.plain)
-                .disabled(controller.isBusy)
-                .accessibilityIdentifier("youtube.musicbrainz.track.\(index)")
-                .accessibilityAddTraits(controller.selectedMusicBrainzTrackID == track.id ? .isSelected : [])
-                .accessibilityValue(controller.selectedMusicBrainzTrackID == track.id ? "Selected" : "Not selected")
+                if recording.releases.isEmpty {
+                    Text("No releases were included for this recording.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
             }
+        } else {
+            Text("Choose a recording first.").font(.caption).foregroundStyle(.secondary)
+        }
+    }
+
+    @ViewBuilder
+    private var trackOptions: some View {
+        if let release = controller.selectedMusicBrainzRelease {
+            VStack(alignment: .leading, spacing: 8) {
+                selectedMusicBrainzSummary(title: "Album", value: release.title, detail: release.artist)
+                if let date = release.date {
+                    Text("Released \(date)").font(.caption).foregroundStyle(.secondary)
+                }
+                if let genre = release.genre {
+                    Text("Genre: \(genre)").font(.caption).foregroundStyle(.secondary)
+                }
+                if controller.isLoadingMusicBrainzArtwork {
+                    ProgressView("Loading cover art…")
+                        .accessibilityIdentifier("youtube.musicbrainz.artworkLoading")
+                } else if let message = controller.musicBrainzArtworkMessage {
+                    Text(message).font(.caption).foregroundStyle(.secondary)
+                        .accessibilityIdentifier("youtube.musicbrainz.artworkStatus")
+                }
+                Text("Choose the track to apply its title, artist and track/disc number to the editable metadata.")
+                    .font(.caption).foregroundStyle(.secondary)
+                releaseTracks(release)
+            }
+        } else if controller.isLoadingMusicBrainzRelease {
+            ProgressView("Loading album tracks…")
+                .accessibilityIdentifier("youtube.musicbrainz.releaseLoading")
+        } else if controller.musicBrainzErrorMessage != nil {
+            Text("Album details could not be loaded. Go back and choose another edition.")
+                .font(.caption).foregroundStyle(.secondary)
+        } else {
+            Text("Choose an album first.").font(.caption).foregroundStyle(.secondary)
+        }
+    }
+
+    private func releaseTracks(_ release: YouTubeMusicReleaseDetails) -> some View {
+        Group {
             if release.tracks.isEmpty {
                 Text("No tracks were available for this release.")
                     .font(.caption).foregroundStyle(.secondary)
+            } else {
+                ForEach(Array(release.tracks.enumerated()), id: \.offset) { index, track in
+                    let selected = controller.selectedMusicBrainzTrackID == track.id
+                    Button {
+                        controller.selectMusicBrainzTrack(track.id)
+                    } label: {
+                        HStack(spacing: 10) {
+                            Text(track.number.map(String.init) ?? "—")
+                                .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                                .frame(minWidth: 28, alignment: .leading)
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(track.title).font(.subheadline.weight(.medium))
+                                Text(trackInfo(track, in: release))
+                                    .font(.caption).foregroundStyle(.secondary)
+                            }
+                            Spacer(minLength: 4)
+                            if selected {
+                                Image(systemName: "checkmark.circle.fill")
+                                    .foregroundStyle(Color.accentColor).accessibilityHidden(true)
+                            }
+                        }
+                        .padding(.vertical, 8)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(controller.isBusy)
+                    .accessibilityIdentifier("youtube.musicbrainz.track.\(index)")
+                    .accessibilityLabel("\(track.title), \(trackInfo(track, in: release))")
+                    .accessibilityAddTraits(selected ? .isSelected : [])
+                    .accessibilityValue(selected ? "Selected" : "Not selected")
+                }
             }
-            if controller.isLoadingMusicBrainzArtwork {
-                ProgressView("Loading cover art…")
-                    .accessibilityIdentifier("youtube.musicbrainz.artworkLoading")
-            } else if let message = controller.musicBrainzArtworkMessage {
-                Text(message).font(.caption).foregroundStyle(.secondary)
-                    .accessibilityIdentifier("youtube.musicbrainz.artworkStatus")
+        }
+    }
+
+    private var selectedMusicBrainzRecording: YouTubeMusicRecording? {
+        controller.musicBrainzRecordings.first { $0.id == controller.selectedMusicBrainzRecordingID }
+    }
+
+    private func selectedMusicBrainzSummary(title: String, value: String, detail: String?) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(title).font(.caption2).foregroundStyle(.secondary)
+            Text(value)
+                .font(.subheadline.weight(.medium))
+                .fixedSize(horizontal: false, vertical: true)
+            if let detail {
+                Text(detail).font(.caption).foregroundStyle(.secondary)
             }
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
+        .accessibilityElement(children: .combine)
+    }
+
+    private func recordingInfo(_ recording: YouTubeMusicRecording) -> String {
+        var details: [String] = []
+        if let genre = recording.genre { details.append(genre) }
+        if let date = recording.firstReleaseDate { details.append("First released \(date)") }
+        details.append(recording.releases.count == 1 ? "1 album edition" : "\(recording.releases.count) album editions")
+        return details.joined(separator: " · ")
+    }
+
+    private func releaseInfo(_ release: YouTubeMusicReleaseSummary) -> String {
+        var details: [String] = []
+        if let date = release.date { details.append(date) }
+        if let count = release.trackCount { details.append(count == 1 ? "1 track" : "\(count) tracks") }
+        return details.isEmpty ? "Release details unavailable" : details.joined(separator: " · ")
+    }
+
+    private func trackInfo(_ track: YouTubeMusicTrack, in release: YouTubeMusicReleaseDetails) -> String {
+        var details: [String] = []
+        if let artist = track.artist { details.append(artist) }
+        if let number = track.number {
+            details.append(track.numberTotal.map { "Track \(number) of \($0)" } ?? "Track \(number)")
+        }
+        if let disc = track.discNumber {
+            details.append(release.discTotal.map { "Disc \(disc) of \($0)" } ?? "Disc \(disc)")
+        }
+        return details.isEmpty ? "Track details unavailable" : details.joined(separator: " · ")
+    }
+
+    private func goToPreviousMusicBrainzStep() {
+        switch musicBrainzStep {
+        case .recordings:
+            break
+        case .releases:
+            musicBrainzStep = .recordings
+        case .tracks:
+            musicBrainzStep = .releases
         }
     }
 
@@ -389,10 +585,11 @@ struct YouTubeDownloadView: View {
                     .font(.caption.monospacedDigit())
                     .accessibilityIdentifier("youtube.download.attempt")
                 if let fraction = progress.fractionCompleted {
+                    let percentage = Int(fraction * 100)
                     ProgressView(value: fraction)
                         .accessibilityLabel("Audio download progress")
-                        .accessibilityValue("\(Int(fraction * 100)) percent")
-                    Text("\(Int(fraction * 100))%")
+                        .accessibilityValue(progress.isEstimated ? "Approximately \(percentage) percent" : "\(percentage) percent")
+                    Text(progress.isEstimated ? "~\(percentage)%" : "\(percentage)%")
                         .font(.caption.monospacedDigit())
                         .accessibilityIdentifier("youtube.download.progress")
                 } else {
@@ -415,11 +612,13 @@ struct YouTubeDownloadView: View {
         }
         .padding().frame(maxWidth: .infinity, alignment: .leading)
         .background(.quaternary, in: RoundedRectangle(cornerRadius: 12))
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("youtube.download.workStatus")
     }
 
     private func failure(_ message: String) -> some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text(message).foregroundStyle(.red).accessibilityIdentifier("youtube.download.error")
+            Text(message).foregroundStyle(.primary).accessibilityIdentifier("youtube.download.error")
             Button(controller.previewExists ? "Try download again" : "Try again", action: controller.retry)
                 .disabled(controller.isBusy)
                 .accessibilityIdentifier("youtube.download.retry")
@@ -429,7 +628,7 @@ struct YouTubeDownloadView: View {
 
     private func savedReceipt(_ track: Track, cancelled: Bool) -> some View {
         VStack(alignment: .leading, spacing: 10) {
-            Label("Saved to your library", systemImage: "checkmark.circle.fill").font(.headline).foregroundStyle(.green)
+            Label("Saved to your library", systemImage: "checkmark.circle.fill").font(.headline).foregroundStyle(.primary)
             Text(track.title).accessibilityIdentifier("youtube.download.savedTrack")
             if let receipt = controller.savedReceipt {
                 Text(receipt.format).font(.footnote).accessibilityIdentifier("youtube.download.actualFormat")
@@ -455,7 +654,7 @@ struct YouTubeDownloadView: View {
             }
         }
         .padding().frame(maxWidth: .infinity, alignment: .leading)
-        .background(.green.opacity(0.1), in: RoundedRectangle(cornerRadius: 12))
+        .background(.quaternary, in: RoundedRectangle(cornerRadius: 12))
     }
 
     private var isWorking: Bool {
