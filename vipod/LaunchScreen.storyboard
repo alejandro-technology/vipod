@@ -16,11 +16,16 @@
                         <rect key="frame" x="0.0" y="0.0" width="393" height="852"/>
                         <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
                         <subviews>
-                            <imageView clipsSubviews="YES" userInteractionEnabled="NO" contentMode="scaleAspectFit" horizontalHuggingPriority="251" verticalHuggingPriority="251" fixedFrame="YES" image="LaunchMark" translatesAutoresizingMaskIntoConstraints="NO" id="qjz-aU-gTG">
-                                <rect key="frame" x="66.008379888256627" y="353.06424581003091" width="260.00000000011744" height="147.99999999999977"/>
-                                <autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMaxY="YES"/>
+                            <imageView clipsSubviews="YES" userInteractionEnabled="NO" contentMode="scaleAspectFit" horizontalHuggingPriority="251" verticalHuggingPriority="251" image="LaunchMark" translatesAutoresizingMaskIntoConstraints="NO" id="qjz-aU-gTG">
+                                <rect key="frame" x="66" y="352" width="260" height="148"/>
                             </imageView>
                         </subviews>
+                        <constraints>
+                            <constraint firstItem="qjz-aU-gTG" firstAttribute="centerX" secondItem="Ze5-6b-2t3" secondAttribute="centerX" id="lX0-8V-qvJ"/>
+                            <constraint firstItem="qjz-aU-gTG" firstAttribute="centerY" secondItem="Ze5-6b-2t3" secondAttribute="centerY" id="mY1-9W-rwK"/>
+                            <constraint firstItem="qjz-aU-gTG" firstAttribute="width" constant="260" id="nZ2-0X-sxL"/>
+                            <constraint firstItem="qjz-aU-gTG" firstAttribute="height" constant="148" id="oA3-1Y-tyM"/>
+                        </constraints>
                         <viewLayoutGuide key="safeArea" id="Bcu-3y-fUS"/>
                         <color key="backgroundColor" name="LaunchBackground"/>
                     </view>
