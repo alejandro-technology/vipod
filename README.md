@@ -2,6 +2,17 @@
 
 VIPOD is a native SwiftUI music player with an iPod Classic-inspired interface for local music.
 
+## Screenshots
+
+The Now Playing screen in both appearance themes:
+
+<p align="center">
+  <img src="docs/screenshots/now-playing-black.png" width="260" alt="VIPOD Now Playing screen in the black theme" />
+  &nbsp;
+  <img src="docs/screenshots/now-playing-white.png" width="260" alt="VIPOD Now Playing screen in the white theme" />
+</p>
+<p align="center"><em>Black theme · White theme</em></p>
+
 ## Run
 
 1. Open `vipod.xcodeproj` in Xcode.
