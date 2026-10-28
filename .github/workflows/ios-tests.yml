@@ -1,0 +1,109 @@
+name: iOS Tests
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  unit-tests:
+    name: Unit tests
+    runs-on: macos-15
+    timeout-minutes: 45
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Select Xcode 26.3
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: '26.3'
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Run Python unit tests
+        run: python -m unittest discover -s scripts -p 'test_*.py'
+
+      - name: Prepare embedded iOS Python runtime
+        run: scripts/bootstrap-youtube-runtime.sh
+
+      - name: Run Swift unit tests
+        run: |
+          xcodebuild test \
+            -project vipod.xcodeproj \
+            -scheme vipod \
+            -testPlan VIPODDefaultTests \
+            -destination 'platform=iOS Simulator,name=iPhone 17' \
+            -derivedDataPath "$RUNNER_TEMP/DerivedData" \
+            -resultBundlePath "$RUNNER_TEMP/UnitTests.xcresult" \
+            -only-testing:vipodTests \
+            -parallel-testing-enabled NO \
+            CODE_SIGN_IDENTITY=-
+
+      - name: Upload unit test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: unit-test-results
+          path: ${{ runner.temp }}/UnitTests.xcresult
+          if-no-files-found: ignore
+          retention-days: 7
+
+  ui-tests:
+    name: UI tests
+    runs-on: macos-15
+    timeout-minutes: 60
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Select Xcode 26.3
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: '26.3'
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Prepare embedded iOS Python runtime
+        run: scripts/bootstrap-youtube-runtime.sh
+
+      - name: Reset simulator state
+        run: |
+          xcrun simctl shutdown all || true
+          xcrun simctl erase all
+
+      - name: Run UI tests
+        run: |
+          xcodebuild test \
+            -project vipod.xcodeproj \
+            -scheme vipod \
+            -testPlan VIPODDefaultTests \
+            -destination 'platform=iOS Simulator,name=iPhone 17' \
+            -derivedDataPath "$RUNNER_TEMP/DerivedData" \
+            -resultBundlePath "$RUNNER_TEMP/UITests.xcresult" \
+            -only-testing:vipodUITests \
+            -parallel-testing-enabled NO \
+            CODE_SIGN_IDENTITY=-
+
+      - name: Upload UI test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ui-test-results
+          path: ${{ runner.temp }}/UITests.xcresult
+          if-no-files-found: ignore
+          retention-days: 7
