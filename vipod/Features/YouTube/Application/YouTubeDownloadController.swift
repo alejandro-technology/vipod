@@ -24,31 +24,83 @@ final class YouTubeDownloadController {
         case previewReady(YouTubeVideoPreview)
     }
 
+    enum MusicBrainzSearchState: Equatable {
+        case idle
+        case searching
+        case results
+        case noResults
+        case failed(String)
+    }
+
+    enum ArtworkSource: Equatable {
+        case youtube
+        case musicBrainz
+    }
+
     private(set) var state: State = .ready
     private(set) var playbackMessage: String?
     private(set) var savedTrackReceipt: Track?
     private(set) var savedReceipt: SavedReceipt?
     private(set) var receiptCancellationArrivedAfterCommit = false
+    private(set) var metadataDraft: YouTubeMetadataDraft?
+    private(set) var musicBrainzSearchState: MusicBrainzSearchState = .idle
+    private(set) var musicBrainzRecordings: [YouTubeMusicRecording] = []
+    private(set) var selectedMusicBrainzRecordingID: String?
+    private(set) var selectedMusicBrainzReleaseID: String?
+    private(set) var selectedMusicBrainzTrackID: String?
+    private(set) var selectedMusicBrainzRelease: YouTubeMusicReleaseDetails?
+    private(set) var isLoadingMusicBrainzRelease = false
+    private(set) var isLoadingMusicBrainzArtwork = false
+    private(set) var musicBrainzArtworkMessage: String?
+    private(set) var musicBrainzErrorMessage: String?
+    private(set) var hasMusicBrainzArtwork = false
+    private(set) var selectedArtworkSource: ArtworkSource = .youtube
+    private(set) var musicBrainzArtwork: Data?
+    var musicBrainzQuery = "" {
+        didSet {
+            guard musicBrainzQuery != oldValue else { return }
+            invalidateMusicBrainzResults()
+        }
+    }
     var urlText = "" {
         didSet {
             guard urlText != oldValue, !clearingURLAfterSave else { return }
-            preparedDownload = nil
+            let newVideoID = YouTubeVideoURL(urlText)?.videoID
+            if let preparedDownload, preparedDownload.preview.videoID != newVideoID {
+                self.preparedDownload = nil
+                metadataDraft = nil
+                musicBrainzArtwork = nil
+                hasMusicBrainzArtwork = false
+                selectedArtworkSource = .youtube
+                musicBrainzQuery = ""
+            }
+            if let musicBrainzVideoID, musicBrainzVideoID != newVideoID {
+                musicBrainzQuery = ""
+                invalidateMusicBrainzResults()
+            }
             transferProgress = nil
             if case .working = state { return }
             if case .cancelling = state { return }
-            state = .ready
+            if preparedDownload == nil { state = .ready }
         }
     }
 
     private let legacyDownload: (@MainActor (YouTubeVideoURL, @escaping @MainActor (YouTubeAudioImportService.Stage) -> Void) async throws -> YouTubeAudioImportOutcome)?
     private let analyze: (@MainActor (YouTubeVideoURL) async throws -> YouTubePreparedDownload)?
-    private let preparedDownloadAction: (@MainActor (YouTubePreparedDownload, @escaping @MainActor (YouTubeAudioImportService.Stage) -> Void, @escaping @MainActor (YouTubeAudioImportService.DownloadProgress) -> Void) async throws -> YouTubeAudioImportOutcome)?
+    private let preparedDownloadAction: (@MainActor (YouTubePreparedDownload, YouTubeEffectiveMetadata, Data?, @escaping @MainActor (YouTubeAudioImportService.Stage) -> Void, @escaping @MainActor (YouTubeAudioImportService.DownloadProgress) -> Void) async throws -> YouTubeAudioImportOutcome)?
+    private let musicMetadataSearch: (any YouTubeMusicMetadataSearching)?
     private let playback: PlaybackController?
     private let onJobSettled: @MainActor () -> Void
     private var job: Task<Void, Never>?
     private var activeJobID: UUID?
     private var cancellationRequested = false
     private var preparedDownload: YouTubePreparedDownload?
+    private var musicBrainzVideoID: String?
+    private var musicBrainzGeneration = 0
+    private var musicBrainzSearchTask: Task<Void, Never>?
+    private var musicBrainzReleaseTask: Task<Void, Never>?
+    private var musicBrainzArtworkTask: Task<Void, Never>?
+    private var artworkSelectionRevision = 0
     private var clearingURLAfterSave = false
     private var activeTransferAttempt = -1
     private(set) var transferProgress: YouTubeAudioImportService.DownloadProgress?
@@ -58,7 +110,11 @@ final class YouTubeDownloadController {
     var fixtureStage: String? { fixtureDriver?.stage.rawValue }
     var fixtureCanAdvance: Bool { fixtureDriver?.canAdvance ?? false }
 
-    init(playback: PlaybackController?, fixtureDriver: YouTubeDownloadUITestFixture) {
+    init(
+        playback: PlaybackController?,
+        fixtureDriver: YouTubeDownloadUITestFixture,
+        musicMetadataSearch: (any YouTubeMusicMetadataSearching)? = nil
+    ) {
         self.playback = playback
         self.onJobSettled = {}
         self.legacyDownload = nil
@@ -68,8 +124,9 @@ final class YouTubeDownloadController {
             let preview = YouTubeVideoPreview(videoID: video.videoID, videoTitle: extraction.title, duration: extraction.duration, thumbnailURL: nil, channel: extraction.channel, uploadDate: nil, effectiveMetadata: YouTubeEffectiveMetadata(title: YouTubeDownloadUITestFixture.receiptTrackTitle, videoTitle: extraction.title, artist: "Fixture Artist", album: "Fixture Album", albumArtist: nil, releaseDate: nil, genre: nil, trackNumber: nil, discNumber: nil, trackNumberTotal: nil, discNumberTotal: nil), formats: [YouTubePreviewFormat(formatID: "fixture", bitrate: 128, filesize: 4_000, filesizeApprox: nil)])
             return YouTubePreparedDownload(preview: preview, operationID: UUID(), extractedAt: Date(), extraction: extraction)
         }
+        self.musicMetadataSearch = musicMetadataSearch
         self.fixtureDriver = fixtureDriver
-        self.preparedDownloadAction = { prepared, update, progress in
+        self.preparedDownloadAction = { prepared, metadata, artworkOverride, update, progress in
             let driver = fixtureDriver
             update(.downloading)
             progress(.init(operationID: prepared.operationID, attempt: 1, completedBytes: 1_000, expectedBytes: 4_000))
@@ -88,10 +145,10 @@ final class YouTubeDownloadController {
             try await Self.writeFixtureWave(to: wav)
             let source = root.appendingPathComponent("fixture.m4a")
             try await Self.exportFixtureAAC(from: wav, to: source)
-            let tagged = try await YouTubeM4AMetadataWriter().write(sourceURL: source, metadata: prepared.preview.effectiveMetadata, temporaryDirectory: root)
+            let tagged = try await YouTubeM4AMetadataWriter().write(sourceURL: source, metadata: metadata, artwork: artworkOverride, temporaryDirectory: root)
             let report = await driver.importFile(tagged)
             guard let track = report?.imported.first else { throw YouTubeImportError.libraryImportFailed("The deterministic UI fixture could not be saved.") }
-            return YouTubeAudioImportOutcome(track: track, extraction: prepared.extraction, cancellationArrivedAfterCommit: false, artworkWarning: "No video thumbnail was available; the audio was saved without artwork.")
+            return YouTubeAudioImportOutcome(track: track, extraction: prepared.extraction, cancellationArrivedAfterCommit: false, artworkWarning: artworkOverride == nil ? "No video thumbnail was available; the audio was saved without artwork." : nil)
         }
     }
 
@@ -143,14 +200,18 @@ final class YouTubeDownloadController {
         self.legacyDownload = download
         self.analyze = nil
         self.preparedDownloadAction = nil
+        self.musicMetadataSearch = nil
     }
 
     init(
         playback: PlaybackController? = nil,
         onJobSettled: @escaping @MainActor () -> Void = {},
         analyze: @escaping @MainActor (YouTubeVideoURL) async throws -> YouTubePreparedDownload,
+        musicMetadataSearch: (any YouTubeMusicMetadataSearching)? = nil,
         downloadPrepared: @escaping @MainActor (
             YouTubePreparedDownload,
+            YouTubeEffectiveMetadata,
+            Data?,
             @escaping @MainActor (YouTubeAudioImportService.Stage) -> Void,
             @escaping @MainActor (YouTubeAudioImportService.DownloadProgress) -> Void
         ) async throws -> YouTubeAudioImportOutcome
@@ -160,29 +221,38 @@ final class YouTubeDownloadController {
         self.legacyDownload = nil
         self.analyze = analyze
         self.preparedDownloadAction = downloadPrepared
+        self.musicMetadataSearch = musicMetadataSearch
     }
 
-    init(playback: PlaybackController? = nil, onJobSettled: @escaping @MainActor () -> Void = {}, service: YouTubeAudioImportService) {
+    init(
+        playback: PlaybackController? = nil,
+        onJobSettled: @escaping @MainActor () -> Void = {},
+        service: YouTubeAudioImportService,
+        musicMetadataSearch: (any YouTubeMusicMetadataSearching)? = nil
+    ) {
         self.playback = playback
         self.onJobSettled = onJobSettled
         self.legacyDownload = nil
         self.analyze = { try await service.analyze($0) }
-        self.preparedDownloadAction = { prepared, update, progress in
-            try await service.download(prepared, update: update, progress: progress)
+        self.preparedDownloadAction = { prepared, metadata, artwork, update, progress in
+            try await service.download(prepared, metadata: metadata, artworkOverride: artwork, update: update, progress: progress)
         }
+        self.musicMetadataSearch = musicMetadataSearch
     }
 
     #if DEBUG
     init(
         onJobSettled: @escaping @MainActor () -> Void = {},
         analyze: @escaping @MainActor (YouTubeVideoURL) async throws -> YouTubePreparedDownload,
-        downloadPrepared: @escaping @MainActor (YouTubePreparedDownload, @escaping @MainActor (YouTubeAudioImportService.Stage) -> Void, @escaping @MainActor (YouTubeAudioImportService.DownloadProgress) -> Void) async throws -> YouTubeAudioImportOutcome
+        musicMetadataSearch: (any YouTubeMusicMetadataSearching)? = nil,
+        downloadPrepared: @escaping @MainActor (YouTubePreparedDownload, YouTubeEffectiveMetadata, Data?, @escaping @MainActor (YouTubeAudioImportService.Stage) -> Void, @escaping @MainActor (YouTubeAudioImportService.DownloadProgress) -> Void) async throws -> YouTubeAudioImportOutcome
     ) {
         self.playback = nil
         self.onJobSettled = onJobSettled
         self.legacyDownload = nil
         self.analyze = analyze
         self.preparedDownloadAction = downloadPrepared
+        self.musicMetadataSearch = musicMetadataSearch
     }
     #endif
 
@@ -192,6 +262,187 @@ final class YouTubeDownloadController {
     var previewExists: Bool { preparedDownload != nil }
     var retainedPreview: YouTubeVideoPreview? { preparedDownload?.preview }
     var isPreviewReady: Bool { if case .previewReady = state { return true }; return false }
+    var metadataValidationMessage: String? { metadataDraft?.validationMessage }
+    var isMetadataValid: Bool { metadataDraft?.validationMessage == nil && metadataDraft != nil }
+    var canApplyMusicBrainzSelection: Bool {
+        guard let release = selectedMusicBrainzRelease,
+              let trackID = selectedMusicBrainzTrackID else { return false }
+        return release.tracks.contains(where: { $0.id == trackID })
+    }
+
+    func updateMetadataDraft(_ keyPath: WritableKeyPath<YouTubeMetadataDraft, String>, value: String) {
+        guard job == nil, var draft = metadataDraft else { return }
+        draft[keyPath: keyPath] = value
+        metadataDraft = draft
+    }
+
+    func searchMusicBrainz() {
+        guard job == nil, let preparedDownload, let musicMetadataSearch else {
+            musicBrainzSearchState = .failed("MusicBrainz search is unavailable. You can still edit the metadata manually.")
+            return
+        }
+        let query = musicBrainzQuery
+        guard !YouTubeMusicSearchTitle.sanitized(query).isEmpty else {
+            musicBrainzSearchState = .failed("Enter a title to search MusicBrainz.")
+            return
+        }
+
+        invalidateMusicBrainzResults()
+        let videoID = preparedDownload.preview.videoID
+        musicBrainzVideoID = videoID
+        musicBrainzSearchState = .searching
+        let generation = musicBrainzGeneration
+        musicBrainzSearchTask = Task { [weak self] in
+            do {
+                let recordings = try await musicMetadataSearch.searchRecordings(query: query)
+                guard let self,
+                      self.isCurrentMusicBrainzRequest(generation: generation, videoID: videoID, query: query) else { return }
+                self.musicBrainzRecordings = recordings
+                self.musicBrainzSearchState = recordings.isEmpty ? .noResults : .results
+                self.musicBrainzErrorMessage = nil
+                self.musicBrainzSearchTask = nil
+            } catch is CancellationError {
+                return
+            } catch {
+                guard let self,
+                      self.isCurrentMusicBrainzRequest(generation: generation, videoID: videoID, query: query) else { return }
+                self.musicBrainzSearchState = .failed("MusicBrainz could not be reached. Try again or edit the metadata manually.")
+                self.musicBrainzSearchTask = nil
+            }
+        }
+    }
+
+    func selectMusicBrainzRecording(_ recordingID: String) {
+        guard job == nil,
+              let recording = musicBrainzRecordings.first(where: { $0.id == recordingID }) else { return }
+        invalidateMusicBrainzRequests()
+        selectedMusicBrainzRecordingID = recording.id
+        selectedMusicBrainzReleaseID = nil
+        selectedMusicBrainzTrackID = nil
+        selectedMusicBrainzRelease = nil
+        musicBrainzArtwork = nil
+        hasMusicBrainzArtwork = false
+        selectedArtworkSource = .youtube
+        musicBrainzErrorMessage = nil
+    }
+
+    func selectMusicBrainzRelease(_ releaseID: String) {
+        guard job == nil,
+              let recordingID = selectedMusicBrainzRecordingID,
+              let recording = musicBrainzRecordings.first(where: { $0.id == recordingID }),
+              recording.releases.contains(where: { $0.id == releaseID }),
+              let musicMetadataSearch else { return }
+        invalidateMusicBrainzRequests()
+        selectedMusicBrainzReleaseID = releaseID
+        selectedMusicBrainzTrackID = nil
+        selectedMusicBrainzRelease = nil
+        musicBrainzArtwork = nil
+        hasMusicBrainzArtwork = false
+        selectedArtworkSource = .youtube
+        musicBrainzErrorMessage = nil
+        isLoadingMusicBrainzRelease = true
+        let generation = musicBrainzGeneration
+        let videoID = preparedDownload?.preview.videoID
+        musicBrainzReleaseTask = Task { [weak self] in
+            do {
+                let details = try await musicMetadataSearch.loadRelease(id: releaseID)
+                guard let self, self.musicBrainzGeneration == generation,
+                      self.preparedDownload?.preview.videoID == videoID,
+                      self.selectedMusicBrainzRecordingID == recordingID,
+                      self.selectedMusicBrainzReleaseID == releaseID else { return }
+                self.selectedMusicBrainzRelease = details
+                self.isLoadingMusicBrainzRelease = false
+                self.musicBrainzReleaseTask = nil
+            } catch is CancellationError {
+                return
+            } catch {
+                guard let self, self.musicBrainzGeneration == generation,
+                      self.preparedDownload?.preview.videoID == videoID,
+                      self.selectedMusicBrainzReleaseID == releaseID else { return }
+                self.isLoadingMusicBrainzRelease = false
+                self.musicBrainzErrorMessage = "MusicBrainz could not load this release. Choose another release or edit metadata manually."
+                self.musicBrainzReleaseTask = nil
+            }
+        }
+    }
+
+    func selectMusicBrainzTrack(_ trackID: String) {
+        guard job == nil,
+              selectedMusicBrainzRelease?.tracks.contains(where: { $0.id == trackID }) == true else { return }
+        invalidateMusicBrainzRequests()
+        selectedMusicBrainzTrackID = trackID
+        applyMusicBrainzSelection()
+    }
+
+    private func applyMusicBrainzSelection() {
+        guard job == nil,
+              let recordingID = selectedMusicBrainzRecordingID,
+              let recording = musicBrainzRecordings.first(where: { $0.id == recordingID }),
+              let releaseID = selectedMusicBrainzReleaseID,
+              let release = selectedMusicBrainzRelease,
+              let trackID = selectedMusicBrainzTrackID,
+              let track = release.tracks.first(where: { $0.id == trackID }),
+              var draft = metadataDraft else { return }
+
+        Self.applyIfAvailable(track.title, to: \.title, in: &draft)
+        Self.applyIfAvailable(track.artist ?? recording.artist, to: \.artist, in: &draft)
+        Self.applyIfAvailable(release.title, to: \.album, in: &draft)
+        Self.applyIfAvailable(release.artist, to: \.albumArtist, in: &draft)
+        Self.applyIfAvailable(release.date ?? recording.firstReleaseDate, to: \.releaseDate, in: &draft)
+        Self.applyIfAvailable(recording.genre ?? release.genre, to: \.genre, in: &draft)
+        if let number = track.number { draft.trackNumber = String(number) }
+        if let total = track.numberTotal { draft.trackNumberTotal = String(total) }
+        if let number = track.discNumber { draft.discNumber = String(number) }
+        if let total = release.discTotal { draft.discNumberTotal = String(total) }
+        metadataDraft = draft
+        musicBrainzArtworkMessage = nil
+        // A newly applied selection must never inherit another release's cover.
+        musicBrainzArtwork = nil
+        hasMusicBrainzArtwork = false
+        selectedArtworkSource = .youtube
+
+        guard let musicMetadataSearch else { return }
+        invalidateMusicBrainzRequests()
+        let generation = musicBrainzGeneration
+        let videoID = preparedDownload?.preview.videoID
+        let artworkRevision = artworkSelectionRevision
+        isLoadingMusicBrainzArtwork = true
+        musicBrainzArtworkTask = Task { [weak self] in
+            do {
+                let artwork = try await musicMetadataSearch.artwork(releaseID: releaseID)
+                guard let self, self.musicBrainzGeneration == generation,
+                      self.preparedDownload?.preview.videoID == videoID,
+                      self.selectedMusicBrainzReleaseID == releaseID else { return }
+                if let artwork {
+                    self.musicBrainzArtwork = artwork
+                    self.hasMusicBrainzArtwork = true
+                    if self.artworkSelectionRevision == artworkRevision {
+                        self.selectedArtworkSource = .musicBrainz
+                    }
+                    self.musicBrainzArtworkMessage = "MusicBrainz cover art selected."
+                } else {
+                    self.musicBrainzArtworkMessage = "No MusicBrainz cover art is available; the YouTube thumbnail will be used if available."
+                }
+                self.isLoadingMusicBrainzArtwork = false
+                self.musicBrainzArtworkTask = nil
+            } catch is CancellationError {
+                return
+            } catch {
+                guard let self, self.musicBrainzGeneration == generation,
+                      self.preparedDownload?.preview.videoID == videoID,
+                      self.selectedMusicBrainzReleaseID == releaseID else { return }
+                self.isLoadingMusicBrainzArtwork = false
+                self.musicBrainzArtworkMessage = "Cover art could not be loaded; the YouTube thumbnail will be used if available."
+                self.musicBrainzArtworkTask = nil
+            }
+        }
+    }
+
+    func selectArtworkSource(_ source: ArtworkSource) {
+        guard source == .youtube || hasMusicBrainzArtwork else { return }
+        artworkSelectionRevision += 1
+        selectedArtworkSource = source
+    }
 
     func submit() {
         guard job == nil else { return }
@@ -210,6 +461,13 @@ final class YouTubeDownloadController {
         artworkWarning = nil
         transferProgress = nil
         if let analyze, preparedDownloadAction != nil {
+            preparedDownload = nil
+            metadataDraft = nil
+            musicBrainzArtwork = nil
+            hasMusicBrainzArtwork = false
+            selectedArtworkSource = .youtube
+            musicBrainzQuery = ""
+            invalidateMusicBrainzResults()
             startAnalysis(video, analyze: analyze, onJobSettled: onJobSettled)
             return
         }
@@ -257,10 +515,18 @@ final class YouTubeDownloadController {
     }
 
     func downloadPreview() {
-        guard job == nil, let preparedDownload, let preparedDownloadAction else { return }
+        guard job == nil, let preparedDownload, let preparedDownloadAction,
+              let metadataDraft,
+              let effectiveMetadata = metadataDraft.effectiveMetadata(videoTitle: preparedDownload.preview.videoTitle) else {
+            if let message = metadataDraft?.validationMessage { state = .failed(message) }
+            return
+        }
         #if DEBUG
         fixtureDriver?.reset()
         #endif
+        let confirmedArtwork = selectedArtworkSource == .musicBrainz ? musicBrainzArtwork : nil
+        if musicBrainzSearchState == .searching { musicBrainzSearchState = .idle }
+        invalidateMusicBrainzRequests()
         let jobID = UUID()
         savedTrackReceipt = nil
         savedReceipt = nil
@@ -273,7 +539,7 @@ final class YouTubeDownloadController {
         job = Task { [onJobSettled] in
             defer { finish(jobID: jobID); onJobSettled() }
             do {
-                let outcome = try await preparedDownloadAction(preparedDownload, { [weak self] stage in
+                let outcome = try await preparedDownloadAction(preparedDownload, effectiveMetadata, confirmedArtwork, { [weak self] stage in
                     guard let self, self.activeJobID == jobID, !self.cancellationRequested else { return }
                     self.state = .working(Self.progressMessage(for: stage))
                 }, { [weak self] event in
@@ -290,6 +556,12 @@ final class YouTubeDownloadController {
                 savedReceipt = Self.receipt(for: outcome)
                 receiptCancellationArrivedAfterCommit = cancellationRequested || outcome.cancellationArrivedAfterCommit
                 self.preparedDownload = nil
+                self.metadataDraft = nil
+                self.musicBrainzArtwork = nil
+                self.hasMusicBrainzArtwork = false
+                self.selectedArtworkSource = .youtube
+                self.musicBrainzQuery = ""
+                self.invalidateMusicBrainzResults()
                 transferProgress = nil
                 clearingURLAfterSave = true
                 urlText = ""
@@ -327,6 +599,12 @@ final class YouTubeDownloadController {
                 }
                 guard !self.cancellationRequested else { return }
                 self.preparedDownload = prepared
+                self.metadataDraft = YouTubeMetadataDraft(metadata: prepared.preview.effectiveMetadata)
+                self.musicBrainzArtwork = nil
+                self.hasMusicBrainzArtwork = false
+                self.selectedArtworkSource = .youtube
+                self.musicBrainzQuery = YouTubeMusicSearchTitle.sanitized(prepared.preview.videoTitle)
+                self.musicBrainzVideoID = prepared.preview.videoID
                 self.state = .previewReady(prepared.preview)
             } catch is CancellationError {
                 guard let self, self.activeJobID == jobID else { return }
@@ -356,6 +634,12 @@ final class YouTubeDownloadController {
 
     func editURL() {
         preparedDownload = nil
+        metadataDraft = nil
+        musicBrainzArtwork = nil
+        hasMusicBrainzArtwork = false
+        selectedArtworkSource = .youtube
+        musicBrainzQuery = ""
+        invalidateMusicBrainzResults()
         transferProgress = nil
         state = .ready
     }
@@ -419,6 +703,50 @@ final class YouTubeDownloadController {
         activeJobID = nil
         cancellationRequested = false
         job = nil
+    }
+
+    private func invalidateMusicBrainzRequests() {
+        musicBrainzGeneration += 1
+        musicBrainzSearchTask?.cancel()
+        musicBrainzSearchTask = nil
+        musicBrainzReleaseTask?.cancel()
+        musicBrainzReleaseTask = nil
+        musicBrainzArtworkTask?.cancel()
+        musicBrainzArtworkTask = nil
+        isLoadingMusicBrainzRelease = false
+        isLoadingMusicBrainzArtwork = false
+    }
+
+    private func invalidateMusicBrainzResults() {
+        invalidateMusicBrainzRequests()
+        musicBrainzVideoID = nil
+        musicBrainzRecordings = []
+        selectedMusicBrainzRecordingID = nil
+        selectedMusicBrainzReleaseID = nil
+        selectedMusicBrainzTrackID = nil
+        selectedMusicBrainzRelease = nil
+        musicBrainzSearchState = .idle
+        musicBrainzErrorMessage = nil
+        musicBrainzArtworkMessage = nil
+    }
+
+    private func isCurrentMusicBrainzRequest(generation: Int, videoID: String, query: String) -> Bool {
+        job == nil
+            && musicBrainzGeneration == generation
+            && musicBrainzVideoID == videoID
+            && preparedDownload?.preview.videoID == videoID
+            && musicBrainzQuery == query
+    }
+
+    private static func applyIfAvailable(
+        _ value: String?,
+        to keyPath: WritableKeyPath<YouTubeMetadataDraft, String>,
+        in draft: inout YouTubeMetadataDraft
+    ) {
+        guard let value else { return }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        draft[keyPath: keyPath] = trimmed
     }
 
     private static func receipt(for outcome: YouTubeAudioImportOutcome) -> SavedReceipt {

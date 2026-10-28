@@ -119,12 +119,15 @@ struct YouTubeAudioImportService {
 
     func download(
         _ prepared: YouTubePreparedDownload,
+        metadata: YouTubeEffectiveMetadata? = nil,
+        artworkOverride: Data? = nil,
         update: @MainActor (Stage) -> Void,
         progress: @escaping @MainActor (DownloadProgress) -> Void = { _ in }
     ) async throws -> YouTubeAudioImportOutcome {
         var temporaryFiles = YouTubeTemporaryFileScope()
         defer { temporaryFiles.cleanup() }
 
+        let effectiveMetadata = metadata ?? prepared.preview.effectiveMetadata
         var extraction = prepared.extraction
         var attemptedURLs = Set<URL>()
         var triedCandidates = 0
@@ -203,8 +206,10 @@ struct YouTubeAudioImportService {
             throw YouTubeImportError.downloadFailed
         }
 
-        var artwork: Data?
-        if let thumbnailURL = prepared.preview.thumbnailURL {
+        var artwork = artworkOverride
+        if artworkOverride != nil {
+            update(.preparingArtwork)
+        } else if let thumbnailURL = prepared.preview.thumbnailURL {
             update(.preparingArtwork)
             do { artwork = try await fetchArtwork(thumbnailURL) }
             catch is CancellationError { throw CancellationError() }
@@ -218,14 +223,14 @@ struct YouTubeAudioImportService {
         update(.tagging)
         let taggedURL: URL
         do {
-            taggedURL = try await tagFile(sourceURL, prepared.preview.effectiveMetadata, artwork)
+            taggedURL = try await tagFile(sourceURL, effectiveMetadata, artwork)
         } catch is CancellationError {
             throw CancellationError()
         } catch let error as YouTubeM4AMetadataWriter.WriterError {
             switch error {
             case .verificationFailed(let detail):
                 VIPODPythonLog("YouTube M4A metadata readback failed: \(detail)")
-                Self.captureReadbackDiagnosticIfRequested(source: sourceURL, metadata: prepared.preview.effectiveMetadata, artwork: artwork)
+                Self.captureReadbackDiagnosticIfRequested(source: sourceURL, metadata: effectiveMetadata, artwork: artwork)
                 throw YouTubeImportError.metadataVerificationFailed
             case .invalidArtwork, .invalidSource, .exportUnavailable, .exportFailed: throw YouTubeImportError.taggingFailed
             }
@@ -234,7 +239,7 @@ struct YouTubeAudioImportService {
         } catch {
             throw YouTubeImportError.taggingFailed
         }
-        Self.captureReadbackDiagnosticIfRequested(source: sourceURL, metadata: prepared.preview.effectiveMetadata, artwork: artwork)
+        Self.captureReadbackDiagnosticIfRequested(source: sourceURL, metadata: effectiveMetadata, artwork: artwork)
         temporaryFiles.track(taggedURL)
         try Task.checkCancellation()
 

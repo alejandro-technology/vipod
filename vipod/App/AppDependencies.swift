@@ -40,11 +40,16 @@ final class AppDependencies {
         self.collections = collections
         self.playback = playback
         #if os(iOS)
+        let musicBrainzSearch = MusicBrainzClient()
         #if DEBUG
         let arguments = ProcessInfo.processInfo.arguments
         if arguments.contains("--uitesting-youtube-download") {
             let driver = YouTubeDownloadUITestFixture(library: library)
-            self.youtubeDownloads = YouTubeDownloadController(playback: playback, fixtureDriver: driver)
+            self.youtubeDownloads = YouTubeDownloadController(
+                playback: playback,
+                fixtureDriver: driver,
+                musicMetadataSearch: UITestYouTubeMusicMetadataSearch()
+            )
         } else if arguments.contains("--uitesting-youtube-preview") {
             let previewService = YouTubeAudioImportService(
                 extract: { video in
@@ -65,12 +70,24 @@ final class AppDependencies {
                 download: { _ in throw CancellationError() },
                 importFile: { _ in nil }
             )
-            self.youtubeDownloads = YouTubeDownloadController(playback: playback, service: previewService)
+            self.youtubeDownloads = YouTubeDownloadController(
+                playback: playback,
+                service: previewService,
+                musicMetadataSearch: UITestYouTubeMusicMetadataSearch()
+            )
         } else {
-            self.youtubeDownloads = YouTubeDownloadController(playback: playback, service: YouTubeAudioImportService(library: library))
+            self.youtubeDownloads = YouTubeDownloadController(
+                playback: playback,
+                service: YouTubeAudioImportService(library: library),
+                musicMetadataSearch: musicBrainzSearch
+            )
         }
         #else
-        self.youtubeDownloads = YouTubeDownloadController(playback: playback, service: YouTubeAudioImportService(library: library))
+        self.youtubeDownloads = YouTubeDownloadController(
+            playback: playback,
+            service: YouTubeAudioImportService(library: library),
+            musicMetadataSearch: musicBrainzSearch
+        )
         #endif
         #endif
         self.audioConnection = audioConnection
@@ -94,6 +111,54 @@ final class AppDependencies {
         { PlayerDeviceNameResolver.currentDisplayName() }
     }
 }
+
+#if DEBUG && os(iOS)
+@MainActor
+private final class UITestYouTubeMusicMetadataSearch: YouTubeMusicMetadataSearching {
+    private let recordingID = "11111111-1111-4111-8111-111111111111"
+    private let releaseID = "22222222-2222-4222-8222-222222222222"
+    private let trackID = "33333333-3333-4333-8333-333333333333"
+
+    func searchRecordings(query: String) async throws -> [YouTubeMusicRecording] {
+        guard !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return [] }
+        return [YouTubeMusicRecording(
+            id: recordingID,
+            title: "MusicBrainz Fixture Recording",
+            artist: "MusicBrainz Fixture Artist",
+            firstReleaseDate: "2001-02-03",
+            genre: "Electronic",
+            releases: [YouTubeMusicReleaseSummary(
+                id: releaseID,
+                title: "MusicBrainz Fixture Album",
+                artist: "MusicBrainz Fixture Album Artist",
+                date: "2001-02-03",
+                trackCount: 1
+            )]
+        )]
+    }
+
+    func loadRelease(id: String) async throws -> YouTubeMusicReleaseDetails {
+        YouTubeMusicReleaseDetails(
+            id: releaseID,
+            title: "MusicBrainz Fixture Album",
+            artist: "MusicBrainz Fixture Album Artist",
+            date: "2001-02-03",
+            genre: "Electronic",
+            discTotal: 1,
+            tracks: [YouTubeMusicTrack(
+                id: trackID,
+                title: "MusicBrainz Fixture Track",
+                artist: "MusicBrainz Fixture Artist",
+                number: 1,
+                numberTotal: 1,
+                discNumber: 1
+            )]
+        )
+    }
+
+    func artwork(releaseID: String) async throws -> Data? { nil }
+}
+#endif
 
 #if DEBUG
 private enum UITestLibraryFixture {

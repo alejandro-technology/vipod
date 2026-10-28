@@ -60,6 +60,55 @@ final class YouTubeAudioImportTests: XCTestCase {
     }
 
     @MainActor
+    func testPreparedDownloadPassesConfirmedMetadataAndArtworkOverrideToTagger() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("youtube-confirmed-tags-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: false)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let downloaded = root.appendingPathComponent("download.m4a")
+        try Data([0, 0, 0, 16, 0x66, 0x74, 0x79, 0x70]).write(to: downloaded)
+        var receivedMetadata: YouTubeEffectiveMetadata?
+        var receivedArtwork: Data?
+        var importedFile: URL?
+        var importedSignature: Data?
+        let service = YouTubeAudioImportService(
+            extract: { _ in self.extractionResult("Source title") },
+            download: { request in
+                let response = try XCTUnwrap(HTTPURLResponse(url: XCTUnwrap(request.url), statusCode: 200, httpVersion: nil, headerFields: nil))
+                return (downloaded, response)
+            },
+            importFile: { url in
+                importedFile = url
+                importedSignature = (try? Data(contentsOf: url)).map { Data($0.prefix(8)) }
+                return TrackImportReport(imported: [Track(title: "Confirmed title", audioFilename: "confirmed.m4a")])
+            },
+            tag: { source, metadata, artwork in
+                receivedMetadata = metadata
+                receivedArtwork = artwork
+                return source
+            },
+            artwork: { _ in XCTFail("A MusicBrainz artwork override must not be replaced by a YouTube thumbnail fetch."); throw YouTubeImportError.artworkUnavailable },
+            passthroughAAC: { _ in true }
+        )
+        let prepared = try await service.analyze(try XCTUnwrap(YouTubeVideoURL("https://youtu.be/abcdefghijk")))
+        let confirmed = YouTubeEffectiveMetadata(
+            title: "Confirmed title", videoTitle: "Source title", artist: "Confirmed artist",
+            album: "Confirmed album", albumArtist: "Confirmed album artist", releaseDate: "2025-04-03",
+            genre: "Jazz", trackNumber: 4, discNumber: 2, trackNumberTotal: 12, discNumberTotal: 2
+        )
+        let cover = Data("selected musicbrainz cover".utf8)
+
+        let outcome = try await service.download(
+            prepared, metadata: confirmed, artworkOverride: cover, update: { _ in }
+        )
+
+        XCTAssertEqual(receivedMetadata, confirmed)
+        XCTAssertEqual(receivedArtwork, cover)
+        XCTAssertEqual(outcome.track.title, "Confirmed title")
+        XCTAssertNotNil(importedFile)
+        XCTAssertEqual(importedSignature, Data([0, 0, 0, 16, 0x66, 0x74, 0x79, 0x70]))
+    }
+
+    @MainActor
     func testControllerCancellationSuppressesStaleProgressAndAllowsRetryOnlyAfterSettlement() async throws {
         var continuations: [CheckedContinuation<YouTubeAudioImportOutcome, Error>] = []
         var progressCallbacks: [@MainActor (YouTubeAudioImportService.Stage) -> Void] = []

@@ -1,4 +1,7 @@
 import SwiftUI
+#if os(iOS)
+import UIKit
+#endif
 
 #if os(iOS)
 struct YouTubeDownloadView: View {
@@ -13,7 +16,11 @@ struct YouTubeDownloadView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
                     linkEntry
-                    if let preview = controller.retainedPreview { previewCard(preview) }
+                    if let preview = controller.retainedPreview {
+                        previewCard(preview)
+                        musicBrainzSearch
+                        metadataEditor
+                    }
                     if isWorking { workStatus }
                     if case .failed(let message) = controller.state { failure(message) }
                     if case .cancelled = controller.state {
@@ -61,6 +68,7 @@ struct YouTubeDownloadView: View {
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderedProminent)
+                .disabled(controller.isBusy || !controller.isMetadataValid)
                 .accessibilityIdentifier("youtube.download.confirm")
             } else {
                 Button(action: controller.submit) {
@@ -77,23 +85,20 @@ struct YouTubeDownloadView: View {
     private func previewCard(_ preview: YouTubeVideoPreview) -> some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(alignment: .top, spacing: 14) {
-                if let thumbnailURL = preview.thumbnailURL {
-                    AsyncImage(url: thumbnailURL) { image in
-                        image.resizable().scaledToFill()
-                    } placeholder: {
-                        RoundedRectangle(cornerRadius: 8).fill(.quaternary).overlay { ProgressView() }
-                    }
-                    .frame(width: 116, height: 72).clipShape(RoundedRectangle(cornerRadius: 8))
-                    .accessibilityLabel("Video thumbnail; not verified album artwork")
-                }
+                previewArtwork(preview)
                 VStack(alignment: .leading, spacing: 5) {
-                    Text(preview.effectiveMetadata.title).font(.headline).accessibilityIdentifier("youtube.preview.title")
-                    if let artist = preview.effectiveMetadata.artist { Text(artist).font(.subheadline) }
-                    if let album = preview.effectiveMetadata.album { Text(album).font(.subheadline).foregroundStyle(.secondary) }
-                    if let albumArtist = preview.effectiveMetadata.albumArtist { Text("Album artist: \(albumArtist)").font(.caption).foregroundStyle(.secondary) }
+                    Text(controller.metadataDraft?.title ?? preview.effectiveMetadata.title)
+                        .font(.headline).accessibilityIdentifier("youtube.preview.title")
+                    if let artist = nonempty(controller.metadataDraft?.artist) { Text(artist).font(.subheadline) }
+                    if let album = nonempty(controller.metadataDraft?.album) { Text(album).font(.subheadline).foregroundStyle(.secondary) }
+                    if let albumArtist = nonempty(controller.metadataDraft?.albumArtist) {
+                        Text("Album artist: \(albumArtist)").font(.caption).foregroundStyle(.secondary)
+                    }
+                    Text("YouTube title: \(preview.videoTitle)").font(.caption).foregroundStyle(.secondary)
                     if let channel = preview.channel { Text("Source: \(channel)").font(.caption).foregroundStyle(.secondary) }
                 }
             }
+            artworkSourcePicker
             metadataRows(preview)
             if let format = preview.formats.first {
                 HStack {
@@ -114,14 +119,254 @@ struct YouTubeDownloadView: View {
     }
 
     @ViewBuilder
+    private func previewArtwork(_ preview: YouTubeVideoPreview) -> some View {
+        if controller.selectedArtworkSource == .musicBrainz,
+           let data = controller.musicBrainzArtwork,
+           let image = UIImage(data: data) {
+            Image(uiImage: image)
+                .resizable().scaledToFill()
+                .frame(width: 116, height: 72).clipShape(RoundedRectangle(cornerRadius: 8))
+                .accessibilityLabel("MusicBrainz album cover")
+        } else if let thumbnailURL = preview.thumbnailURL {
+            AsyncImage(url: thumbnailURL) { image in
+                image.resizable().scaledToFill()
+            } placeholder: {
+                RoundedRectangle(cornerRadius: 8).fill(.quaternary).overlay { ProgressView() }
+            }
+            .frame(width: 116, height: 72).clipShape(RoundedRectangle(cornerRadius: 8))
+            .accessibilityLabel("YouTube video thumbnail")
+        } else {
+            RoundedRectangle(cornerRadius: 8).fill(.quaternary)
+                .frame(width: 116, height: 72)
+                .overlay { Image(systemName: "music.note").foregroundStyle(.secondary) }
+                .accessibilityLabel("No artwork available")
+        }
+    }
+
+    private var artworkSourcePicker: some View {
+        HStack(spacing: 8) {
+            artworkSourceButton(.youtube, title: "YouTube thumbnail")
+            artworkSourceButton(.musicBrainz, title: "MusicBrainz cover")
+        }
+    }
+
+    private func artworkSourceButton(
+        _ source: YouTubeDownloadController.ArtworkSource,
+        title: String
+    ) -> some View {
+        let isSelected = controller.selectedArtworkSource == source
+        return Button {
+            controller.selectArtworkSource(source)
+        } label: {
+            Label(title, systemImage: isSelected ? "checkmark.circle.fill" : "circle")
+                .font(.caption)
+                .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(.bordered)
+        .tint(isSelected ? .accentColor : .secondary)
+        .disabled(controller.isBusy || (source == .musicBrainz && !controller.hasMusicBrainzArtwork))
+        .accessibilityValue(isSelected ? "Selected" : "Not selected")
+        .accessibilityIdentifier(source == .youtube ? "youtube.artwork.source.youtube" : "youtube.artwork.source.musicbrainz")
+    }
+
+    @ViewBuilder
     private func metadataRows(_ preview: YouTubeVideoPreview) -> some View {
-        let metadata = preview.effectiveMetadata
+        let draft = controller.metadataDraft
         if let duration = preview.duration { metadataRow("Duration", value: Self.durationText(duration)) }
-        if let date = metadata.releaseDate { metadataRow("Release date", value: date) }
-        if let genre = metadata.genre { metadataRow("Genre", value: genre) }
-        if let number = metadata.trackNumber { metadataRow("Track", value: metadata.trackNumberTotal.map { "\(number)/\($0)" } ?? "\(number)") }
-        if let number = metadata.discNumber { metadataRow("Disc", value: metadata.discNumberTotal.map { "\(number)/\($0)" } ?? "\(number)") }
+        if let date = nonempty(draft?.releaseDate) { metadataRow("Release date", value: date) }
+        if let genre = nonempty(draft?.genre) { metadataRow("Genre", value: genre) }
+        if let number = nonempty(draft?.trackNumber) {
+            let total = nonempty(draft?.trackNumberTotal)
+            metadataRow("Track", value: total.map { "\(number)/\($0)" } ?? number)
+        }
+        if let number = nonempty(draft?.discNumber) {
+            let total = nonempty(draft?.discNumberTotal)
+            metadataRow("Disc", value: total.map { "\(number)/\($0)" } ?? number)
+        }
         if let uploadDate = preview.uploadDate { metadataRow("Video upload date", value: uploadDate) }
+    }
+
+    private var metadataEditor: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Music metadata").font(.headline)
+            Text("Edit these values before downloading. The original YouTube title remains unchanged.")
+                .font(.caption).foregroundStyle(.secondary)
+            metadataField("Title", keyPath: \.title, identifier: "youtube.metadata.title")
+            metadataField("Artist", keyPath: \.artist, identifier: "youtube.metadata.artist")
+            metadataField("Album", keyPath: \.album, identifier: "youtube.metadata.album")
+            metadataField("Album artist", keyPath: \.albumArtist, identifier: "youtube.metadata.albumArtist")
+            metadataField("Release date", keyPath: \.releaseDate, identifier: "youtube.metadata.releaseDate")
+            metadataField("Genre", keyPath: \.genre, identifier: "youtube.metadata.genre")
+            HStack(spacing: 8) {
+                metadataField("Track number", keyPath: \.trackNumber, identifier: "youtube.metadata.trackNumber", numeric: true)
+                metadataField("Track total", keyPath: \.trackNumberTotal, identifier: "youtube.metadata.trackNumberTotal", numeric: true)
+            }
+            HStack(spacing: 8) {
+                metadataField("Disc number", keyPath: \.discNumber, identifier: "youtube.metadata.discNumber", numeric: true)
+                metadataField("Disc total", keyPath: \.discNumberTotal, identifier: "youtube.metadata.discNumberTotal", numeric: true)
+            }
+            if let message = controller.metadataValidationMessage {
+                Text(message).font(.footnote).foregroundStyle(.red)
+                    .accessibilityIdentifier("youtube.metadata.validation")
+            }
+        }
+        .padding()
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14))
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("youtube.metadata.editor")
+    }
+
+    private func metadataField(
+        _ title: String,
+        keyPath: WritableKeyPath<YouTubeMetadataDraft, String>,
+        identifier: String,
+        numeric: Bool = false
+    ) -> some View {
+        TextField(title, text: Binding(
+            get: { controller.metadataDraft?[keyPath: keyPath] ?? "" },
+            set: { controller.updateMetadataDraft(keyPath, value: $0) }
+        ))
+        .textFieldStyle(.roundedBorder)
+        .keyboardType(numeric ? .numberPad : .default)
+        .textInputAutocapitalization(numeric ? .never : .words)
+        .autocorrectionDisabled()
+        .disabled(controller.isBusy)
+        .accessibilityLabel(title)
+        .accessibilityIdentifier(identifier)
+    }
+
+    private var musicBrainzSearch: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Find a recording with MusicBrainz").font(.subheadline.weight(.semibold))
+            TextField("Search title", text: $controller.musicBrainzQuery)
+                .textFieldStyle(.roundedBorder)
+                .textInputAutocapitalization(.words)
+                .autocorrectionDisabled()
+                .disabled(controller.isBusy)
+                .accessibilityLabel("MusicBrainz search title")
+                .accessibilityIdentifier("youtube.musicbrainz.query")
+            Button(action: controller.searchMusicBrainz) {
+                Label("Search MusicBrainz", systemImage: "magnifyingglass")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent)
+            .disabled(controller.isBusy || YouTubeMusicSearchTitle.sanitized(controller.musicBrainzQuery).isEmpty)
+            .accessibilityIdentifier("youtube.musicbrainz.search")
+
+            switch controller.musicBrainzSearchState {
+            case .idle:
+                EmptyView()
+            case .searching:
+                ProgressView("Searching MusicBrainz…")
+                    .accessibilityIdentifier("youtube.musicbrainz.loading")
+            case .noResults:
+                Text("No MusicBrainz recordings matched. You can keep editing manually.")
+                    .font(.footnote).foregroundStyle(.secondary)
+                    .accessibilityIdentifier("youtube.musicbrainz.empty")
+            case .failed(let message):
+                Text(message).font(.footnote).foregroundStyle(.secondary)
+                    .accessibilityIdentifier("youtube.musicbrainz.error")
+            case .results:
+                musicBrainzResults
+            }
+            if let message = controller.musicBrainzErrorMessage {
+                Text(message).font(.footnote).foregroundStyle(.secondary)
+                    .accessibilityIdentifier("youtube.musicbrainz.releaseError")
+            }
+        }
+        .padding()
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14))
+    }
+
+    private var musicBrainzResults: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            ForEach(Array(controller.musicBrainzRecordings.enumerated()), id: \.offset) { index, recording in
+                Button {
+                    controller.selectMusicBrainzRecording(recording.id)
+                } label: {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(recording.title).font(.subheadline.weight(.medium))
+                        if let artist = recording.artist { Text(artist).font(.caption).foregroundStyle(.secondary) }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .disabled(controller.isBusy)
+                .accessibilityIdentifier("youtube.musicbrainz.recording.\(index)")
+                if controller.selectedMusicBrainzRecordingID == recording.id {
+                    ForEach(Array(recording.releases.enumerated()), id: \.offset) { releaseIndex, release in
+                        Button {
+                            controller.selectMusicBrainzRelease(release.id)
+                        } label: {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(release.title)
+                                if let artist = release.artist { Text(artist).font(.caption).foregroundStyle(.secondary) }
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        .buttonStyle(.bordered)
+                        .disabled(controller.isBusy)
+                        .accessibilityIdentifier("youtube.musicbrainz.release.\(releaseIndex)")
+                        if controller.selectedMusicBrainzReleaseID == release.id {
+                            selectedReleaseTracks
+                        }
+                    }
+                    if recording.releases.isEmpty {
+                        Text("No releases were included for this recording.")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var selectedReleaseTracks: some View {
+        if controller.isLoadingMusicBrainzRelease {
+            ProgressView("Loading release tracks…")
+                .accessibilityIdentifier("youtube.musicbrainz.releaseLoading")
+        } else if let release = controller.selectedMusicBrainzRelease {
+            ForEach(Array(release.tracks.enumerated()), id: \.offset) { index, track in
+                Button {
+                    controller.selectMusicBrainzTrack(track.id)
+                } label: {
+                    HStack {
+                        Text(track.number.map(String.init) ?? "—")
+                            .foregroundStyle(.secondary)
+                        Text(track.title)
+                        Spacer()
+                        if controller.selectedMusicBrainzTrackID == track.id {
+                            Image(systemName: "checkmark").accessibilityHidden(true)
+                        }
+                    }
+                }
+                .buttonStyle(.plain)
+                .disabled(controller.isBusy)
+                .accessibilityIdentifier("youtube.musicbrainz.track.\(index)")
+                .accessibilityAddTraits(controller.selectedMusicBrainzTrackID == track.id ? .isSelected : [])
+                .accessibilityValue(controller.selectedMusicBrainzTrackID == track.id ? "Selected" : "Not selected")
+            }
+            if release.tracks.isEmpty {
+                Text("No tracks were available for this release.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            if controller.isLoadingMusicBrainzArtwork {
+                ProgressView("Loading cover art…")
+                    .accessibilityIdentifier("youtube.musicbrainz.artworkLoading")
+            } else if let message = controller.musicBrainzArtworkMessage {
+                Text(message).font(.caption).foregroundStyle(.secondary)
+                    .accessibilityIdentifier("youtube.musicbrainz.artworkStatus")
+            }
+        }
+    }
+
+    private func nonempty(_ value: String?) -> String? {
+        guard let value else { return nil }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 
     private func metadataRow(_ title: String, value: String) -> some View {

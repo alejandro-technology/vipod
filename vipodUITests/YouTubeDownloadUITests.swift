@@ -127,6 +127,66 @@ final class YouTubeDownloadUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["youtube.download.savedTrack"].waitForExistence(timeout: 30))
     }
 
+    func testMusicBrainzSearchAppliesSelectedTrackAndSavesItWithoutLiveNetwork() throws {
+        let app = launchFixture()
+        let menu = app.buttons["menu.youtubeDownloads"]
+        XCTAssertTrue(menu.waitForExistence(timeout: 20))
+        menu.tap()
+
+        let url = app.textFields["youtube.download.url"]
+        XCTAssertTrue(url.waitForExistence(timeout: 10))
+        url.tap()
+        url.typeText("https://youtu.be/abcdefghijk")
+        app.buttons["youtube.download.analyze"].tap()
+
+        let confirm = app.buttons["youtube.download.confirm"]
+        XCTAssertTrue(confirm.waitForExistence(timeout: 10))
+        XCTAssertTrue(app.textFields["youtube.metadata.title"].exists)
+        let search = app.buttons["youtube.musicbrainz.search"]
+        XCTAssertTrue(search.waitForExistence(timeout: 5))
+        XCTAssertTrue(search.isHittable, "The MusicBrainz search action should be visible and directly tappable.")
+        search.tap()
+
+        let recording = app.buttons["youtube.musicbrainz.recording.0"]
+        XCTAssertTrue(recording.waitForExistence(timeout: 10))
+        scrollUntilHittable(recording, in: app)
+        recording.tap()
+        let release = app.buttons["youtube.musicbrainz.release.0"]
+        XCTAssertTrue(release.waitForExistence(timeout: 10))
+        scrollUntilHittable(release, in: app)
+        release.tap()
+        let track = app.buttons["youtube.musicbrainz.track.0"]
+        XCTAssertTrue(track.waitForExistence(timeout: 10))
+        scrollUntilHittable(track, in: app)
+        XCTAssertFalse(track.isSelected)
+        XCTAssertEqual(track.value as? String, "Not selected")
+        track.tap()
+        XCTAssertTrue(track.waitForPredicate("selected == true", timeout: 5))
+        XCTAssertEqual(track.value as? String, "Selected")
+
+        XCTAssertEqual(app.textFields["youtube.metadata.title"].value as? String, "MusicBrainz Fixture Track")
+        XCTAssertEqual(app.textFields["youtube.metadata.artist"].value as? String, "MusicBrainz Fixture Artist")
+        XCTAssertEqual(app.textFields["youtube.metadata.album"].value as? String, "MusicBrainz Fixture Album")
+        XCTAssertEqual(app.staticTexts["youtube.preview.title"].label, "MusicBrainz Fixture Track")
+
+        for _ in 0..<6 where !confirm.isHittable { app.swipeDown() }
+        confirm.tap()
+        let advance = app.buttons["youtube.fixture.advance"]
+        XCTAssertTrue(advance.waitForExistence(timeout: 10))
+        let stage = app.staticTexts["youtube.download.fixtureStage"]
+        advance.tap()
+        XCTAssertTrue(stage.waitForPredicate("label == 'Fixture stage: unknown-transfer'", timeout: 10))
+        advance.tap()
+        XCTAssertTrue(stage.waitForPredicate("label == 'Fixture stage: tagging'", timeout: 10))
+        advance.tap()
+        XCTAssertTrue(stage.waitForPredicate("label == 'Fixture stage: importing'", timeout: 10))
+        advance.tap()
+
+        let saved = app.staticTexts["youtube.download.savedTrack"]
+        XCTAssertTrue(saved.waitForExistence(timeout: 30))
+        XCTAssertEqual(saved.label, "MusicBrainz Fixture Track")
+    }
+
     func testPreviewRendersInBlackAndWhiteAtLargeDynamicType() throws {
         for theme in ["black", "white"] {
             let app = XCUIApplication()
