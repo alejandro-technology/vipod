@@ -6,12 +6,12 @@ final class ClassicPlayerMenuTests: XCTestCase {
     func testMainAndMusicMenusExposeStableRowsAndDestinations() async {
         let model = await makeModel(supportsYouTubeDownloads: true)
         #if os(iOS)
-        XCTAssertEqual(model.rows.map(\.id), ["menu.music", "menu.nowPlaying", "menu.shuffle", "menu.queue", "menu.settings", "menu.import", "menu.youtubeDownloads"])
+        XCTAssertEqual(model.rows.map(\.id), ["menu.music", "menu.nowPlaying", "menu.queue", "menu.settings", "menu.import", "menu.youtubeDownloads"])
         guard let youtubeRow = model.rows.first(where: { $0.id == "menu.youtubeDownloads" }), case .youtubeDownloads = youtubeRow.action else {
             return XCTFail("Expected the YouTube Downloads menu action")
         }
         #else
-        XCTAssertEqual(model.rows.map(\.id), ["menu.music", "menu.nowPlaying", "menu.shuffle", "menu.queue", "menu.settings", "menu.import"])
+        XCTAssertEqual(model.rows.map(\.id), ["menu.music", "menu.nowPlaying", "menu.queue", "menu.settings", "menu.import"])
         #endif
         let destinations: [(String, PlayerDestination)] = [
             ("menu.music", .music), ("menu.queue", .queue), ("menu.nowPlaying", .nowPlaying), ("menu.settings", .settings)
@@ -205,7 +205,7 @@ final class ClassicPlayerMenuTests: XCTestCase {
         model.selectedIndex = 100
         XCTAssertEqual(model.selectedRowID, "menu.import")
         model.browse(by: 1)
-        XCTAssertEqual(model.selectedIndex, 5)
+        XCTAssertEqual(model.selectedIndex, 4)
         model.selectedIndex = -10
         XCTAssertEqual(model.selectedRowID, "menu.music")
 
@@ -224,6 +224,119 @@ final class ClassicPlayerMenuTests: XCTestCase {
         model.menuPressed()
         XCTAssertEqual(model.navigation.currentDestination, .music)
         XCTAssertEqual(model.selectedIndex, 0)
+    }
+
+    func testMenuBackRestoresSelectionAtEveryPreviousDestination() async throws {
+        let first = track("First")
+        let second = track("Second")
+        let model = await makeModel(tracks: [first, second])
+
+        model.activate(try XCTUnwrap(model.rows.first { $0.id == "menu.music" }))
+        model.activate(try XCTUnwrap(model.rows.first { $0.id == "music.songs" }))
+        model.activate(try XCTUnwrap(model.rows.first { $0.id == "track.\(second.id.uuidString)" }))
+
+        XCTAssertEqual(model.navigation.currentDestination, .nowPlaying)
+        model.menuPressed()
+        XCTAssertEqual(model.navigation.currentDestination, .songs)
+        XCTAssertEqual(model.selectedRowID, "track.\(second.id.uuidString)")
+        XCTAssertEqual(model.selectedIndex, 1)
+
+        model.menuPressed()
+        XCTAssertEqual(model.navigation.currentDestination, .music)
+        XCTAssertEqual(model.selectedRowID, "music.songs")
+        XCTAssertEqual(model.selectedIndex, 4)
+
+        model.menuPressed()
+        XCTAssertEqual(model.navigation.currentDestination, .mainMenu)
+        XCTAssertEqual(model.selectedRowID, "menu.music")
+        XCTAssertEqual(model.selectedIndex, 0)
+    }
+
+    func testQueueKeepsItsSelectedTrackWhenReopenedFromNowPlaying() async {
+        let first = track("First")
+        let second = track("Second")
+        let model = await makeModel(tracks: [first, second])
+        model.playback.replaceQueue(with: [first, second])
+        model.playback.play(first)
+        model.navigation.push(.nowPlaying)
+
+        model.openQueue()
+        model.selectQueueTrack(second.id)
+        model.menuPressed()
+        model.openQueue()
+
+        XCTAssertEqual(model.navigation.currentDestination, .queue)
+        XCTAssertEqual(model.selectedQueueTrackID, second.id)
+    }
+
+    func testSelectingCurrentTrackNavigatesWithoutRestartingOrReplacingQueue() async throws {
+        let first = track("First")
+        let second = track("Second")
+        let library = LibraryController(repository: MenuTestRepository(tracks: [first, second]))
+        await library.load()
+        let engine = MenuTestPlayback()
+        let playback = PlaybackController(engine: engine)
+        let model = ClassicPlayerModel(library: library, playback: playback)
+        model.navigation.push(.songs)
+        playback.replaceQueue(with: [second, first])
+        playback.play(first)
+        playback.seek(to: 37)
+        let loadCount = engine.loadCount
+        let playCount = engine.playCount
+        let modelQueue = playback.queue.orderedTracks
+        let sameTrackRow = try XCTUnwrap(model.rows.first { row in
+            if case .play(let track, _) = row.action { return track.id == first.id }
+            return false
+        })
+        model.activate(sameTrackRow)
+
+        XCTAssertEqual(model.navigation.currentDestination, .nowPlaying)
+        XCTAssertEqual(playback.currentTrack?.id, first.id)
+        XCTAssertEqual(playback.queue.orderedTracks.map(\.id), modelQueue.map(\.id))
+        XCTAssertEqual(playback.elapsed, 37)
+        XCTAssertEqual(engine.loadCount, loadCount, "Selecting the current track must not reload the engine.")
+        XCTAssertEqual(engine.playCount, playCount, "Selecting the current track must not restart playback.")
+    }
+
+    func testSelectingPausedCurrentTrackRetainsExistingRestartBehavior() async throws {
+        let current = track("Current")
+        let library = LibraryController(repository: MenuTestRepository(tracks: [current]))
+        await library.load()
+        let engine = MenuTestPlayback()
+        let playback = PlaybackController(engine: engine)
+        let model = ClassicPlayerModel(library: library, playback: playback)
+        model.navigation.push(.songs)
+        playback.replaceQueue(with: [current])
+        playback.play(current)
+        playback.seek(to: 37)
+        playback.pause()
+        let previousLoadCount = engine.loadCount
+        let row = try XCTUnwrap(model.rows.first)
+
+        model.activate(row)
+
+        XCTAssertEqual(model.navigation.currentDestination, .nowPlaying)
+        XCTAssertEqual(playback.status, .playing)
+        XCTAssertEqual(engine.loadCount, previousLoadCount + 1)
+        XCTAssertEqual(playback.elapsed, 0)
+    }
+
+    func testMainMenuOmitsShuffleAndShuffleTogglePreservesCurrentPlayback() async {
+        let tracks = [track("First"), track("Second"), track("Third")]
+        let model = await makeModel(tracks: tracks)
+        XCTAssertFalse(model.rows.contains { $0.title == "Shuffle Songs" || $0.id == "menu.shuffle" })
+        model.playback.replaceQueue(with: tracks)
+        model.playback.play(tracks[1])
+        model.playback.seek(to: 23)
+        let queueBefore = Set(model.playback.queue.orderedTracks.map(\.id))
+        let currentID = model.playback.currentTrack?.id
+
+        model.toggleShuffle()
+
+        XCTAssertTrue(model.playback.isShuffled)
+        XCTAssertEqual(model.playback.currentTrack?.id, currentID)
+        XCTAssertEqual(Set(model.playback.queue.orderedTracks.map(\.id)), queueBefore)
+        XCTAssertEqual(model.playback.elapsed, 23)
     }
 
     private func track(_ title: String, artist: String = "Artist", album: String = "Album") -> Track {
@@ -262,8 +375,10 @@ private final class MenuTestPlayback: AudioPlayback {
     var duration: TimeInterval = 0
     var onEvent: (@MainActor @Sendable (AudioPlaybackEvent) -> Void)?
     var onStateChange: (@MainActor @Sendable () -> Void)?
-    func load(_ track: Track) throws { duration = track.duration ?? 0; status = .ready }
-    func play() throws { status = .playing }
+    var loadCount = 0
+    var playCount = 0
+    func load(_ track: Track) throws { loadCount += 1; elapsed = 0; duration = track.duration ?? 100; status = .ready }
+    func play() throws { playCount += 1; status = .playing }
     func pause() { status = .paused }
     func seek(to seconds: TimeInterval) throws { elapsed = seconds }
     func stop() { status = .idle; elapsed = 0 }

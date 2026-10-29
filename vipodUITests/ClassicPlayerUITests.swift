@@ -118,6 +118,104 @@ final class ClassicPlayerUITests: XCTestCase {
         attachNowPlayingScreenshot(from: app, named: "Now Playing — white theme")
     }
 
+    func testNowPlayingToolbarShowsAccessibleActionsAndQueueRouting() {
+        let app = XCUIApplication()
+        app.launchArguments = ["--uitesting-library-fixture", "--uitesting-reset-library"]
+        app.launch()
+
+        XCTAssertTrue(app.buttons["menu.nowPlaying"].waitForExistence(timeout: 20))
+        XCTAssertFalse(app.buttons["menu.shuffle"].exists, "Shuffle belongs on Now Playing, not the main menu.")
+        app.buttons["menu.nowPlaying"].tap()
+
+        let playlist = app.buttons["nowPlaying.action.playlist"]
+        let queue = app.buttons["nowPlaying.action.queue"]
+        let shuffle = app.buttons["nowPlaying.action.shuffle"]
+        XCTAssertTrue(playlist.waitForExistence(timeout: 5))
+        XCTAssertTrue(queue.exists)
+        XCTAssertTrue(shuffle.exists)
+        XCTAssertEqual(playlist.label, "Playlist")
+        XCTAssertEqual(queue.label, "Queue")
+        XCTAssertEqual(shuffle.label, "Shuffle")
+        let display = app.descendants(matching: .any)["classic.display"]
+        XCTAssertEqual((playlist.frame.midX + shuffle.frame.midX) / 2, display.frame.midX, accuracy: 12,
+                       "The floating action group should be centered below the display by default.")
+        XCTAssertFalse(playlist.isEnabled, "Playlist is unavailable when no playlist exists.")
+        XCTAssertTrue(queue.isEnabled)
+        XCTAssertTrue(shuffle.isEnabled)
+        let initialShuffleValue = shuffle.value as? String
+        shuffle.tap()
+        XCTAssertNotEqual(shuffle.value as? String, initialShuffleValue)
+        queue.tap()
+        XCTAssertTrue(app.buttons["queue.moveUp"].waitForExistence(timeout: 5))
+    }
+
+    func testMenuBackRestoresSelectedRowsAndScrollAcrossDestinations() {
+        let app = XCUIApplication()
+        app.launchArguments = ["--uitesting-library-fixture", "--uitesting-reset-library"]
+        app.launch()
+
+        let music = app.buttons["menu.music"]
+        XCTAssertTrue(music.waitForExistence(timeout: 20))
+        music.tap()
+        app.buttons["music.songs"].tap()
+
+        let secondSong = app.buttons["track.AAAAAAAA-0000-0000-0000-000000000002"]
+        XCTAssertTrue(secondSong.waitForExistence(timeout: 5))
+        secondSong.tap()
+        XCTAssertEqual(secondSong.value as? String, "Selected")
+        secondSong.tap()
+        XCTAssertTrue(app.staticTexts["nowPlaying.title"].waitForExistence(timeout: 5))
+        XCTAssertEqual(app.staticTexts["nowPlaying.title"].label, "Beta")
+
+        app.buttons["wheel.menu"].tap()
+        XCTAssertEqual(secondSong.value as? String, "Selected")
+        XCTAssertTrue(secondSong.isHittable, "Returning from Now Playing should restore the selected song and its scroll position.")
+
+        app.buttons["wheel.menu"].tap()
+        XCTAssertEqual(app.buttons["music.songs"].value as? String, "Selected")
+        app.buttons["wheel.menu"].tap()
+        XCTAssertEqual(music.value as? String, "Selected")
+    }
+
+    func testNowPlayingPlaylistActionAddsCurrentTrackToPlaylist() {
+        let app = XCUIApplication()
+        app.launchArguments = ["--uitesting-library-fixture", "--uitesting-reset-library"]
+        app.launch()
+
+        XCTAssertTrue(app.buttons["menu.music"].waitForExistence(timeout: 20))
+        app.buttons["menu.music"].tap()
+        app.buttons["music.playlists"].tap()
+        app.buttons["playlist.create"].tap()
+        let name = app.alerts.textFields.firstMatch
+        XCTAssertTrue(name.waitForExistence(timeout: 5))
+        name.tap()
+        name.typeText("Now Playing Collection")
+        app.alerts.buttons["Save"].firstMatch.tap()
+
+        let playlist = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "playlist.open.")).firstMatch
+        XCTAssertTrue(playlist.waitForExistence(timeout: 5))
+        let playlistID = String(playlist.identifier.dropFirst("playlist.open.".count))
+        app.buttons["wheel.menu"].tap()
+        app.buttons["wheel.menu"].tap()
+        app.buttons["menu.nowPlaying"].tap()
+
+        let addToPlaylist = app.buttons["nowPlaying.action.playlist"]
+        XCTAssertTrue(addToPlaylist.waitForExistence(timeout: 5))
+        XCTAssertTrue(addToPlaylist.isEnabled)
+        addToPlaylist.tap()
+        let collectionOption = app.buttons["nowPlaying.playlist.\(playlistID)"]
+        XCTAssertTrue(collectionOption.waitForExistence(timeout: 5))
+        collectionOption.tap()
+
+        app.buttons["wheel.menu"].tap()
+        app.buttons["menu.music"].tap()
+        app.buttons["music.playlists"].tap()
+        app.buttons["playlist.open.\(playlistID)"].tap()
+        app.buttons["wheel.select"].tap()
+        XCTAssertTrue(app.buttons["playlist.member.AAAAAAAA-0000-0000-0000-000000000001"].waitForExistence(timeout: 5))
+        XCTAssertEqual(playlistTrackOrder(in: app), ["Alpha"], "The Now Playing action should add the current song to the chosen playlist.")
+    }
+
     func testMenuBackEmptyLibraryImportCTAAndThemeSelection() {
         let app = XCUIApplication()
         app.launch()
@@ -278,6 +376,7 @@ final class ClassicPlayerUITests: XCTestCase {
         renamedPlaylist.tap()
         app.buttons["wheel.select"].tap()
         XCTAssertGreaterThan(app.buttons["playlist.addSongs"].frame.minY, display.frame.maxY, "Playlist-member actions belong below the LCD.")
+        XCTAssertFalse(app.buttons["playlist.more"].exists, "The playlist-member toolbar should not show the unused More action.")
         app.buttons["playlist.addSongs"].tap()
         let alpha = app.buttons["playlist.picker.AAAAAAAA-0000-0000-0000-000000000001"]
         XCTAssertTrue(alpha.waitForExistence(timeout: 5))

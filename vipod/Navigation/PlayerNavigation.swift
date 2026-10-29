@@ -37,38 +37,58 @@ public enum PlayerMenuAction: Hashable, Sendable {
 public struct PlayerNavigationState: Equatable, Sendable {
     public private(set) var path: [PlayerDestination]
     public private(set) var selection: PlayerMenuSelection?
+    private var selectionsByDestination: [PlayerDestination: PlayerMenuSelection] = [:]
 
     public init(root: PlayerDestination = .mainMenu, selectedItemID: String? = nil) {
         self.path = [root]
         self.selection = selectedItemID.map(PlayerMenuSelection.item(id:))
+        self.selectionsByDestination = selectedItemID.map { [root: .item(id: $0)] } ?? [:]
     }
 
     public var currentDestination: PlayerDestination { path.last ?? .mainMenu }
 
     public mutating func select(itemID: String) {
-        selection = .item(id: itemID)
+        setSelection(.item(id: itemID))
     }
 
     public mutating func clearSelection() {
-        selection = nil
+        setSelection(nil)
     }
 
     public mutating func select(action: PlayerMenuAction) {
-        selection = .action(action)
+        setSelection(.action(action))
     }
 
     public mutating func push(_ destination: PlayerDestination) {
+        rememberCurrentSelection()
         path.append(destination)
+        selection = selectionsByDestination[destination]
     }
 
     @discardableResult
     public mutating func pop() -> PlayerDestination? {
         guard path.count > 1 else { return nil }
-        return path.removeLast()
+        rememberCurrentSelection()
+        let popped = path.removeLast()
+        selection = selectionsByDestination[currentDestination]
+        return popped
     }
 
     public mutating func returnToRoot() {
         guard let root = path.first else { return }
+        rememberCurrentSelection()
         path = [root]
+        selection = selectionsByDestination[root]
+    }
+
+    private mutating func setSelection(_ selection: PlayerMenuSelection?) {
+        self.selection = selection
+        if let selection { selectionsByDestination[currentDestination] = selection }
+        else { selectionsByDestination.removeValue(forKey: currentDestination) }
+    }
+
+    private mutating func rememberCurrentSelection() {
+        if let selection { selectionsByDestination[currentDestination] = selection }
+        else { selectionsByDestination.removeValue(forKey: currentDestination) }
     }
 }

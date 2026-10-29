@@ -10,7 +10,6 @@ public struct ClassicPlayerRow: Identifiable, Sendable {
         case open(PlayerDestination)
         case play(Track, queue: [Track])
         case addToPlaylist(Track, playlistID: UUID)
-        case shuffle([Track])
         case importMusic
         case youtubeDownloads
         case setTheme(PlayerThemeChoice)

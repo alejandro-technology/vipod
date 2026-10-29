@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <Scheme
    LastUpgradeVersion = "2630"
-   version = "1.7">
+   version = "1.8">
    <BuildAction
       parallelizeBuildables = "YES"
       buildImplicitDependencies = "YES">
@@ -54,8 +54,27 @@
       buildConfiguration = "Debug"
       selectedDebuggerIdentifier = "Xcode.DebuggerFoundation.Debugger.LLDB"
       selectedLauncherIdentifier = "Xcode.DebuggerFoundation.Launcher.LLDB"
-      shouldUseLaunchSchemeArgsEnv = "YES"
-      shouldAutocreateTestPlan = "YES">
+      shouldUseLaunchSchemeArgsEnv = "YES">
+      <TestPlans>
+         <TestPlanReference
+            reference = "container:vipod.xcodeproj/xcshareddata/xctestplans/VIPODDefaultTests.xctestplan"
+            default = "YES">
+            <Name>
+            </Name>
+         </TestPlanReference>
+         <TestPlanReference
+            reference = "container:vipod.xcodeproj/xcshareddata/xctestplans/YouTubeRuntime.xctestplan">
+            <Name>
+            </Name>
+         </TestPlanReference>
+         <TestPlanReference
+            reference = "container:vipod.xcodeproj/xcshareddata/xctestplans/YouTubeRuntimeDevice.xctestplan">
+            <Name>
+            </Name>
+         </TestPlanReference>
+         <AutocreatedTestPlanReference>
+         </AutocreatedTestPlanReference>
+      </TestPlans>
       <Testables>
          <TestableReference
             skipped = "NO"
@@ -79,26 +98,9 @@
             </BuildableReference>
          </TestableReference>
       </Testables>
-      <TestPlans>
-         <TestPlanReference
-            reference = "container:vipod.xcodeproj/xcshareddata/xctestplans/VIPODDefaultTests.xctestplan"
-            default = "YES">
-            <Name>VIPODDefaultTests</Name>
-         </TestPlanReference>
-         <TestPlanReference
-            reference = "container:vipod.xcodeproj/xcshareddata/xctestplans/YouTubeRuntime.xctestplan"
-            default = "NO">
-            <Name>YouTubeRuntime</Name>
-         </TestPlanReference>
-         <TestPlanReference
-            reference = "container:vipod.xcodeproj/xcshareddata/xctestplans/YouTubeRuntimeDevice.xctestplan"
-            default = "NO">
-            <Name>YouTubeRuntimeDevice</Name>
-         </TestPlanReference>
-      </TestPlans>
-    </TestAction>
+   </TestAction>
    <LaunchAction
-      buildConfiguration = "Debug"
+      buildConfiguration = "Release"
       selectedDebuggerIdentifier = "Xcode.DebuggerFoundation.Debugger.LLDB"
       selectedLauncherIdentifier = "Xcode.DebuggerFoundation.Launcher.LLDB"
       launchStyle = "0"

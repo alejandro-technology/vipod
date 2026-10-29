@@ -27,7 +27,6 @@ struct ClassicPlayerMenuBuilder {
             var rows = [
                 row("menu.music", String(localized: "Music"), .open(.music)),
                 row("menu.nowPlaying", String(localized: "Now Playing"), .open(.nowPlaying)),
-                row("menu.shuffle", String(localized: "Shuffle Songs"), .shuffle(tracks)),
                 row("menu.queue", String(localized: "Queue"), .open(.queue)),
                 row("menu.settings", String(localized: "Settings"), .open(.settings)),
                 row("menu.import", String(localized: "Import Music"), .importMusic)

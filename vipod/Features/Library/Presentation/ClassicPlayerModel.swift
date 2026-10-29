@@ -234,8 +234,9 @@ public final class ClassicPlayerModel {
 
     public func menuPressed() {
         if isSeeking { isSeeking = false; return }
-        _ = navigation.pop()
-        resetSelection()
+        guard navigation.pop() != nil else { return }
+        selectedIndex = 0
+        normalizeSelection()
     }
 
     public func selectPressed() {
@@ -273,16 +274,13 @@ public final class ClassicPlayerModel {
     public func toggleShuffle() { playback.toggleShuffle() }
 
     public func openQueue() {
-        selectedQueueTrackID = playback.currentTrack?.id ?? playback.queue.orderedTracks.first?.id
-        navigation.push(.queue)
+        selectQueueFallbackIfNeeded()
+        pushDestination(.queue)
     }
 
     public func openPlaylistSongPicker(for playlistID: UUID) {
         guard navigation.currentDestination == .playlist(id: playlistID) else { return }
-        filterText = ""
-        navigation.push(.playlistSongPicker(id: playlistID))
-        selectedIndex = 0
-        resetSelection()
+        pushDestination(.playlistSongPicker(id: playlistID), clearFilter: true)
     }
 
     public func playNext(_ track: Track) { playback.playNext(track) }
@@ -332,7 +330,7 @@ public final class ClassicPlayerModel {
         if playback.isShuffled { playback.toggleShuffle() }
         playback.replaceQueue(with: ordered)
         playback.play(first)
-        navigation.push(.nowPlaying)
+        pushDestination(.nowPlaying)
     }
 
     public func selectQueueTrack(_ id: UUID) { selectedQueueTrackID = id }
@@ -372,31 +370,21 @@ public final class ClassicPlayerModel {
     private func perform(_ action: ClassicPlayerRow.Action) {
         switch action {
         case .open(let destination):
-            if destination == .queue {
-                selectedQueueTrackID = playback.currentTrack?.id ?? playback.queue.orderedTracks.first?.id
-            }
-            navigation.push(destination)
-            isSeeking = false
-            filterText = ""
-            resetSelection()
+            if destination == .queue { selectQueueFallbackIfNeeded() }
+            pushDestination(destination, clearFilter: true)
         case .play(let track, let queue):
+            if playback.currentTrack?.id == track.id, playback.status == .playing {
+                pushDestination(.nowPlaying)
+                return
+            }
             if case .playlist = navigation.currentDestination, playback.isShuffled {
                 playback.toggleShuffle()
             }
             playback.replaceQueue(with: queue)
             playback.play(track)
-            navigation.push(.nowPlaying)
-            resetSelection()
+            pushDestination(.nowPlaying)
         case .addToPlaylist(let track, let playlistID):
             Task { await addToPlaylist(track.id, playlistID: playlistID) }
-        case .shuffle(let tracks):
-            guard !tracks.isEmpty else { return }
-            playback.replaceQueue(with: tracks)
-            if playback.isShuffled { playback.toggleShuffle() }
-            playback.toggleShuffle()
-            playback.play(playback.queue.orderedTracks.first)
-            navigation.push(.nowPlaying)
-            resetSelection()
         case .importMusic:
             guard !library.isImporting else { return }
             isImporterPresented = true
@@ -414,10 +402,18 @@ public final class ClassicPlayerModel {
         }
     }
 
-    private func resetSelection() {
+    private func pushDestination(_ destination: PlayerDestination, clearFilter: Bool = false) {
+        navigation.push(destination)
         selectedIndex = 0
-        if let first = rows.first { navigation.select(itemID: first.id) }
-        else { navigation.clearSelection() }
+        isSeeking = false
+        if clearFilter { filterText = "" }
+        normalizeSelection()
+    }
+
+    private func selectQueueFallbackIfNeeded() {
+        let queueIDs = playback.queue.orderedTracks.map(\.id)
+        if let selectedQueueTrackID, queueIDs.contains(selectedQueueTrackID) { return }
+        selectedQueueTrackID = playback.currentTrack?.id ?? queueIDs.first
     }
 
     private var removableSelectedTrack: Track? {

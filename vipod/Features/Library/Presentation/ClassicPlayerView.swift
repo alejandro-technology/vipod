@@ -464,7 +464,21 @@ public struct ClassicPlayerView: View {
 
     @ViewBuilder
     private var songActionsToolbar: some View {
-        if model.navigation.currentDestination == .queue {
+        if model.navigation.currentDestination == .nowPlaying {
+            NowPlayingActionsToolbar(
+                track: model.playback.currentTrack,
+                playlists: model.collections.catalog.playlists,
+                canOpenQueue: !model.playback.queue.orderedTracks.isEmpty,
+                isShuffled: model.playback.isShuffled,
+                theme: theme,
+                openQueue: model.openQueue,
+                addToPlaylist: { playlistID in
+                    guard let track = model.playback.currentTrack else { return }
+                    Task { await model.addToPlaylist(track.id, playlistID: playlistID) }
+                },
+                toggleShuffle: model.toggleShuffle
+            )
+        } else if model.navigation.currentDestination == .queue {
             queueActionsToolbar
         } else if model.navigation.currentDestination == .playlists {
             playlistActionsToolbar
@@ -513,13 +527,13 @@ public struct ClassicPlayerView: View {
         let tracks = model.playback.queue.orderedTracks
         let index = model.selectedQueueTrackID.flatMap { id in tracks.firstIndex(where: { $0.id == id }) }
         return ContextualActionToolbar(actions: [
-            contextualAction("queue.moveUp", "Move Up", "arrow.up", enabled: index != nil && index != 0) {
+            contextualAction("queue.moveUp", "Up", "arrow.up", accessibilityLabel: "Move Up", enabled: index != nil && index != 0) {
                 model.moveSelectedQueueTrack(by: -1)
             },
-            contextualAction("queue.moveDown", "Move Down", "arrow.down", enabled: index != nil && index != tracks.count - 1) {
+            contextualAction("queue.moveDown", "Down", "arrow.down", accessibilityLabel: "Move Down", enabled: index != nil && index != tracks.count - 1) {
                 model.moveSelectedQueueTrack(by: 1)
             },
-            contextualAction("queue.remove", "Remove from Queue", "minus.circle", enabled: index != nil) {
+            contextualAction("queue.remove", "Remove", "minus.circle", accessibilityLabel: "Remove from Queue", enabled: index != nil) {
                 model.removeSelectedQueueTrack()
             }
         ], theme: theme)
@@ -529,18 +543,18 @@ public struct ClassicPlayerView: View {
         let selected = model.selectedRow
         let selectedID: UUID? = { if case .open(.playlist(let id))? = selected?.action { return id }; return nil }()
         return ContextualActionToolbar(actions: [
-            contextualAction("playlist.create", "Create Playlist", "plus") {
+            contextualAction("playlist.create", "Create", "plus", accessibilityLabel: "Create Playlist") {
                 editingPlaylistID = nil
                 collectionName = ""
                 showsPlaylistName = true
             },
-            contextualAction("playlist.rename", "Rename Playlist", "pencil", enabled: selectedID != nil) {
+            contextualAction("playlist.rename", "Rename", "pencil", accessibilityLabel: "Rename Playlist", enabled: selectedID != nil) {
                 guard let selectedID else { return }
                 editingPlaylistID = selectedID
                 collectionName = selected?.title ?? ""
                 showsPlaylistName = true
             },
-            contextualAction("playlist.delete", "Delete Playlist", "trash", enabled: selectedID != nil) {
+            contextualAction("playlist.delete", "Delete", "trash", accessibilityLabel: "Delete Playlist", enabled: selectedID != nil) {
                 if let selectedID { Task { await model.deletePlaylist(id: selectedID) } }
             }
         ], theme: theme)
@@ -551,20 +565,17 @@ public struct ClassicPlayerView: View {
         let track = model.selectedSongTrack
         let index = track.flatMap { selected in playlist?.trackIDs.firstIndex(of: selected.id) }
         return ContextualActionToolbar(actions: [
-            contextualAction("playlist.addSongs", "Add Songs", "plus", enabled: model.library.tracks.contains(where: { candidate in !(playlist?.trackIDs.contains(candidate.id) ?? true) })) {
+            contextualAction("playlist.addSongs", "Add", "plus", accessibilityLabel: "Add Songs", enabled: model.library.tracks.contains(where: { candidate in !(playlist?.trackIDs.contains(candidate.id) ?? true) })) {
                 model.openPlaylistSongPicker(for: id)
             },
-            contextualAction("playlist.moveUp", "Move Up", "arrow.up", enabled: index != nil && index != 0) {
+            contextualAction("playlist.moveUp", "Up", "arrow.up", accessibilityLabel: "Move Up", enabled: index != nil && index != 0) {
                 if let track { Task { await model.movePlaylistTrack(playlistID: id, trackID: track.id, by: -1) } }
             },
-            contextualAction("playlist.moveDown", "Move Down", "arrow.down", enabled: index != nil && index != (playlist?.trackIDs.count ?? 0) - 1) {
+            contextualAction("playlist.moveDown", "Down", "arrow.down", accessibilityLabel: "Move Down", enabled: index != nil && index != (playlist?.trackIDs.count ?? 0) - 1) {
                 if let track { Task { await model.movePlaylistTrack(playlistID: id, trackID: track.id, by: 1) } }
             },
-            contextualAction("playlist.remove", "Remove from Playlist", "minus.circle", enabled: track != nil) {
+            contextualAction("playlist.remove", "Remove", "minus.circle", accessibilityLabel: "Remove from Playlist", enabled: track != nil) {
                 if let track { Task { await model.removeFromPlaylist(track.id, playlistID: id) } }
-            },
-            contextualAction("playlist.more", "More Song Actions", "ellipsis", enabled: track != nil) {
-                showsSongOverflow = true
             }
         ], theme: theme)
     }
@@ -576,7 +587,7 @@ public struct ClassicPlayerView: View {
             return track
         }()
         return ContextualActionToolbar(actions: [
-            contextualAction("playlist.addSelectedSong", "Add Selected Song", "plus", enabled: selectedTrack != nil) {
+            contextualAction("playlist.addSelectedSong", "Add", "plus", accessibilityLabel: "Add Selected Song", enabled: selectedTrack != nil) {
                 model.selectCurrent()
             }
         ], theme: theme)
@@ -585,10 +596,10 @@ public struct ClassicPlayerView: View {
     private var favoriteActionsToolbar: some View {
         let track = model.selectedSongTrack
         return ContextualActionToolbar(actions: [
-            contextualAction("favorite.toggle", model.isSelectedTrackFavorite ? "Remove Favorite" : "Add Favorite", model.isSelectedTrackFavorite ? "heart.slash" : "heart", enabled: track != nil) {
+            contextualAction("favorite.toggle", model.isSelectedTrackFavorite ? "Remove" : "Add", model.isSelectedTrackFavorite ? "heart.slash" : "heart", accessibilityLabel: model.isSelectedTrackFavorite ? "Remove Favorite" : "Add Favorite", enabled: track != nil) {
                 if let track { Task { await model.toggleFavorite(track.id) } }
             },
-            contextualAction("favorite.more", "More Song Actions", "ellipsis", enabled: track != nil) {
+            contextualAction("favorite.more", "More", "ellipsis", accessibilityLabel: "More Song Actions", enabled: track != nil) {
                 showsSongOverflow = true
             }
         ], theme: theme)
@@ -598,12 +609,14 @@ public struct ClassicPlayerView: View {
         _ id: String,
         _ title: String,
         _ icon: String,
+        accessibilityLabel: String? = nil,
         enabled: Bool = true,
         action: @escaping () -> Void
     ) -> ContextualPlayerAction {
         ContextualPlayerAction(
             id: id,
             title: String(localized: String.LocalizationValue(title)),
+            accessibilityLabel: accessibilityLabel.map { String(localized: String.LocalizationValue($0)) },
             icon: icon,
             isEnabled: enabled,
             action: action
