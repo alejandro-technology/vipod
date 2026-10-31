@@ -1,0 +1,180 @@
+name: Build iOS IPA
+
+on:
+  workflow_dispatch:
+    inputs:
+      export_method:
+        description: IPA export destination
+        type: choice
+        required: true
+        default: app-store-connect
+        options:
+          - app-store-connect
+          - ad-hoc
+  workflow_run:
+    workflows: [iOS Tests]
+    types: [completed]
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  build-ipa:
+    name: Archive and export IPA
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'push' &&
+       github.event.workflow_run.head_branch == 'main')
+    runs-on: macos-15
+    timeout-minutes: 60
+    env:
+      APPLE_TEAM_ID: 55S7JZHP8J
+      BUNDLE_ID: com.alejandrotechnology.vipod
+      EXPORT_METHOD: ${{ inputs.export_method || 'app-store-connect' }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
+
+      - name: Select Xcode 26.3
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: '26.3'
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Prepare embedded iOS Python runtime
+        run: scripts/bootstrap-youtube-runtime.sh
+
+      # Add these repository secrets before dispatching this workflow:
+      # IOS_CERTIFICATE_P12_BASE64, IOS_CERTIFICATE_PASSWORD,
+      # IOS_PROVISIONING_PROFILE_BASE64. Use an Apple Distribution certificate
+      # and a profile for this bundle ID and selected export method. Generate
+      # each *_BASE64 value with: base64 -i file | tr -d '\n'
+      - name: Install signing certificate and provisioning profile
+        env:
+          IOS_CERTIFICATE_P12_BASE64: ${{ secrets.IOS_CERTIFICATE_P12_BASE64 }}
+          IOS_CERTIFICATE_PASSWORD: ${{ secrets.IOS_CERTIFICATE_PASSWORD }}
+          IOS_PROVISIONING_PROFILE_BASE64: ${{ secrets.IOS_PROVISIONING_PROFILE_BASE64 }}
+        run: |
+          set -euo pipefail
+          : "${IOS_CERTIFICATE_P12_BASE64:?Set the IOS_CERTIFICATE_P12_BASE64 repository secret}"
+          : "${IOS_CERTIFICATE_PASSWORD:?Set the IOS_CERTIFICATE_PASSWORD repository secret}"
+          : "${IOS_PROVISIONING_PROFILE_BASE64:?Set the IOS_PROVISIONING_PROFILE_BASE64 repository secret}"
+
+          SIGNING_DIR="$RUNNER_TEMP/ios-signing"
+          mkdir -p "$SIGNING_DIR" "$HOME/Library/MobileDevice/Provisioning Profiles"
+          CERTIFICATE_PATH="$SIGNING_DIR/distribution.p12"
+          PROFILE_PATH="$SIGNING_DIR/profile.mobileprovision"
+          DECODED_PROFILE_PATH="$SIGNING_DIR/profile.plist"
+          KEYCHAIN_PATH="$SIGNING_DIR/build.keychain-db"
+          KEYCHAIN_PASSWORD="$(openssl rand -hex 32)"
+
+          printf '%s' "$IOS_CERTIFICATE_P12_BASE64" | base64 -D > "$CERTIFICATE_PATH"
+          printf '%s' "$IOS_PROVISIONING_PROFILE_BASE64" | base64 -D > "$PROFILE_PATH"
+          security cms -D -i "$PROFILE_PATH" -o "$DECODED_PROFILE_PATH"
+
+          PROFILE_NAME=$(/usr/libexec/PlistBuddy -c 'Print :Name' "$DECODED_PROFILE_PATH")
+          PROFILE_UUID=$(/usr/libexec/PlistBuddy -c 'Print :UUID' "$DECODED_PROFILE_PATH")
+          python3 - "$DECODED_PROFILE_PATH" "$APPLE_TEAM_ID" "$BUNDLE_ID" <<'PY'
+          import fnmatch
+          import plistlib
+          import sys
+
+          profile_path, team_id, bundle_id = sys.argv[1:]
+          with open(profile_path, "rb") as profile_file:
+              profile = plistlib.load(profile_file)
+
+          if team_id not in profile.get("TeamIdentifier", []):
+              raise SystemExit("Provisioning profile does not belong to the configured Apple team.")
+
+          entitlements = profile.get("Entitlements", {})
+          application_identifier = entitlements.get("application-identifier", "")
+          prefixes = profile.get("ApplicationIdentifierPrefix", [])
+          expected_identifiers = [f"{prefix}.{bundle_id}" for prefix in prefixes]
+          if not any(fnmatch.fnmatchcase(identifier, application_identifier) for identifier in expected_identifiers):
+              raise SystemExit("Provisioning profile does not match the VIPOD bundle identifier.")
+          PY
+
+          cp "$PROFILE_PATH" "$HOME/Library/MobileDevice/Provisioning Profiles/$PROFILE_UUID.mobileprovision"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security import "$CERTIFICATE_PATH" -k "$KEYCHAIN_PATH" -P "$IOS_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security list-keychains -d user -s "$KEYCHAIN_PATH" "$HOME/Library/Keychains/login.keychain-db"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+          {
+            printf 'PROFILE_NAME=%s\n' "$PROFILE_NAME"
+            printf 'PROFILE_UUID=%s\n' "$PROFILE_UUID"
+            printf 'SIGNING_KEYCHAIN=%s\n' "$KEYCHAIN_PATH"
+          } >> "$GITHUB_ENV"
+
+      - name: Archive app
+        run: |
+          xcodebuild archive \
+            -project vipod.xcodeproj \
+            -scheme vipod \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -archivePath "$RUNNER_TEMP/vipod.xcarchive" \
+            -derivedDataPath "$RUNNER_TEMP/DerivedData" \
+            CODE_SIGN_STYLE=Manual \
+            CODE_SIGN_IDENTITY='Apple Distribution' \
+            DEVELOPMENT_TEAM="$APPLE_TEAM_ID" \
+            PROVISIONING_PROFILE_SPECIFIER="$PROFILE_NAME"
+
+      - name: Create export options
+        run: |
+          python3 - "$RUNNER_TEMP/ExportOptions.plist" <<'PY'
+          import os
+          import plistlib
+          import sys
+
+          options = {
+              "method": os.environ["EXPORT_METHOD"],
+              "teamID": os.environ["APPLE_TEAM_ID"],
+              "signingStyle": "manual",
+              "signingCertificate": "Apple Distribution",
+              "provisioningProfiles": {
+                  os.environ["BUNDLE_ID"]: os.environ["PROFILE_NAME"],
+              },
+          }
+          with open(sys.argv[1], "wb") as export_options_file:
+              plistlib.dump(options, export_options_file)
+          PY
+
+      - name: Export IPA
+        run: |
+          xcodebuild -exportArchive \
+            -archivePath "$RUNNER_TEMP/vipod.xcarchive" \
+            -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist" \
+            -exportPath "$RUNNER_TEMP/ipa"
+          test -s "$RUNNER_TEMP/ipa/vipod.ipa"
+
+      - name: Upload signed IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: vipod-ipa-${{ github.run_number }}
+          path: ${{ runner.temp }}/ipa/vipod.ipa
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
+
+      - name: Remove signing material
+        if: always()
+        run: |
+          if [ -n "${SIGNING_KEYCHAIN:-}" ]; then
+            security delete-keychain "$SIGNING_KEYCHAIN" || true
+          fi
+          if [ -n "${PROFILE_UUID:-}" ]; then
+            rm -f "$HOME/Library/MobileDevice/Provisioning Profiles/$PROFILE_UUID.mobileprovision"
+          fi
+          rm -rf "$RUNNER_TEMP/ios-signing"
