@@ -2,7 +2,7 @@ import AVFoundation
 import CryptoKit
 import Foundation
 
-nonisolated public actor FileTrackRepository: TrackRepository {
+public actor FileTrackRepository: TrackRepository {
     public static let storageDirectoryName = "VIPOD"
     nonisolated private static let catalogFilename = "tracks.json"
     nonisolated private static let audioDirectoryName = "Audio"

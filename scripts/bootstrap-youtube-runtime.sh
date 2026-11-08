@@ -18,6 +18,25 @@ if [ ! -f "$FRAMEWORK/Info.plist" ]; then
     tar -xzf "$ARCHIVE" -C "$RUNTIME" Python.xcframework
 fi
 
+# Workaround for beeware/Python-Apple-support 3.14-b11 bug: install_stdlib in
+# build/utils.sh builds a path from the unquoted $ARCHS list, producing a
+# nonexistent "lib-arm64 x86_64" directory on multi-arch (generic/CI) builds.
+# Copy each architecture's lib-<arch> folder instead.
+UTILS="$FRAMEWORK/build/utils.sh"
+if [ -f "$UTILS" ] && grep -qF 'lib-$ARCHS/' "$UTILS"; then
+    awk 'index($0, "lib-$ARCHS/") {
+            line = $0
+            sub(/lib-\$ARCHS\//, "lib-$LIB_ARCH/", line)
+            print "        for LIB_ARCH in $ARCHS; do"
+            print line
+            print "        done"
+            next
+        }
+        { print }
+    ' "$UTILS" > "$UTILS.tmp"
+    mv "$UTILS.tmp" "$UTILS"
+fi
+
 rm -rf "$RUNTIME/app"
 mkdir -p "$RUNTIME/app"
 WHEELS="$RUNTIME/wheels"

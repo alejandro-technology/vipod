@@ -1,6 +1,6 @@
 import Foundation
 
-nonisolated public actor FileLibraryCollectionStore: LibraryCollectionStore {
+public actor FileLibraryCollectionStore: LibraryCollectionStore {
     private let fileURL: URL
 
     public init(storageURL: URL) {
