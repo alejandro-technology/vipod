@@ -179,22 +179,24 @@ static NSError *VIPODPythonCurrentException(void) {
     return VIPODPythonError(10, [NSString stringWithFormat:@"Python %@: %@", typeName, message]);
 }
 
-NSString * _Nullable VIPODPythonExtract(NSString *videoID, NSError **error) {
+NSString * _Nullable VIPODPythonExtract(NSString *videoID, NSString *cacheDir, NSError **error) {
     NSError *initializationError;
     if (!VIPODPythonInitialize(&initializationError)) {
         if (error) *error = initializationError;
         return nil;
     }
 
+    NSString *json = nil;
+    NSError *pythonError = nil;
+
     @autoreleasepool {
         PyGILState_STATE gil = PyGILState_Ensure();
         PyObject *module = NULL;
         PyObject *function = NULL;
         PyObject *argument = NULL;
+        PyObject *cacheArgument = NULL;
         PyObject *arguments = NULL;
         PyObject *response = NULL;
-        NSString *json = nil;
-        NSError *pythonError = nil;
 
         module = PyImport_ImportModule("vipod_youtube");
         if (!module) goto python_error;
@@ -202,7 +204,14 @@ NSString * _Nullable VIPODPythonExtract(NSString *videoID, NSError **error) {
         if (!function) goto python_error;
         argument = PyUnicode_FromString(videoID.UTF8String);
         if (!argument) goto python_error;
-        arguments = PyTuple_Pack(1, argument);
+        if (cacheDir.length > 0) {
+            cacheArgument = PyUnicode_FromString(cacheDir.UTF8String);
+        } else {
+            cacheArgument = Py_None;
+            Py_INCREF(Py_None);
+        }
+        if (!cacheArgument) goto python_error;
+        arguments = PyTuple_Pack(2, argument, cacheArgument);
         if (!arguments) goto python_error;
         response = PyObject_CallObject(function, arguments);
         if (!response) goto python_error;
@@ -226,17 +235,18 @@ python_error:
 cleanup:
         Py_XDECREF(response);
         Py_XDECREF(arguments);
+        Py_XDECREF(cacheArgument);
         Py_XDECREF(argument);
         Py_XDECREF(function);
         Py_XDECREF(module);
         PyGILState_Release(gil);
-        if (pythonError) {
-            VIPODPythonLog(pythonError.localizedDescription);
-            if (error) *error = pythonError;
-            return nil;
-        }
-        return json;
     }
+    if (pythonError) {
+        VIPODPythonLog(pythonError.localizedDescription);
+        if (error) *error = pythonError;
+        return nil;
+    }
+    return json;
 }
 
 void VIPODPythonLog(NSString *message) {
@@ -244,6 +254,6 @@ void VIPODPythonLog(NSString *message) {
 }
 #else
 BOOL VIPODPythonInitialize(NSError **error) { return NO; }
-NSString * _Nullable VIPODPythonExtract(NSString *videoID, NSError **error) { return nil; }
+NSString * _Nullable VIPODPythonExtract(NSString *videoID, NSString *cacheDir, NSError **error) { return nil; }
 void VIPODPythonLog(NSString *message) { NSLog(@"YOUTUBE_POC: %@", message); }
 #endif

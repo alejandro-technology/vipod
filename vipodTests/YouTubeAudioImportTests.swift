@@ -642,6 +642,90 @@ final class YouTubeAudioImportTests: XCTestCase {
     }
 
     @MainActor
+    func testRangeRequestAcceptsPartialContentAndReportsCompletedProgress() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("youtube-range-206-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: false)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let downloaded = root.appendingPathComponent("download.m4a")
+        try Data([0, 0, 0, 16, 0x66, 0x74, 0x79, 0x70, 0x00, 0x00]).write(to: downloaded)
+        let mediaFormat = YouTubeAudioFormat(formatID: "audio", extensionName: "m4a", protocolName: "https", audioCodec: "mp4a.40.2", videoCodec: "none", url: URL(string: "https://cdn.example.test/audio")!, httpHeaders: [:], filesize: 10, bitrate: 128)
+        let extraction = YouTubeExtractionResult(id: "abcdefghijk", title: "Song", format: mediaFormat, formats: [mediaFormat], webkitJSCChallengeCalls: 0, webkitJSCChallengeSuccesses: 0)
+        var receivedRange: String?
+        var imported = false
+        let service = YouTubeAudioImportService(
+            extract: { _ in extraction },
+            download: { request in
+                receivedRange = request.value(forHTTPHeaderField: "Range")
+                let response = try XCTUnwrap(HTTPURLResponse(url: XCTUnwrap(request.url), statusCode: 206, httpVersion: nil, headerFields: ["Content-Length": "10", "Content-Range": "bytes 0-9/10"]))
+                return (downloaded, response)
+            },
+            importFile: { _ in
+                imported = true
+                return TrackImportReport(imported: [Track(title: "Song", audioFilename: "song.m4a")])
+            }
+        )
+        var progress: [YouTubeAudioImportService.DownloadProgress] = []
+
+        let prepared = try await service.analyze(try XCTUnwrap(YouTubeVideoURL("https://youtu.be/abcdefghijk")))
+        _ = try await service.download(prepared, update: { _ in }, progress: { progress.append($0) })
+
+        XCTAssertEqual(receivedRange, "bytes=0-")
+        XCTAssertTrue(imported)
+        XCTAssertEqual(progress.last?.expectedBytes, 10)
+        XCTAssertEqual(progress.last?.completedBytes, 10)
+        XCTAssertEqual(progress.last?.fractionCompleted, 1)
+    }
+
+    @MainActor
+    func testPartialContentWithoutZeroOriginIsRejected() async throws {
+        let mediaFormat = YouTubeAudioFormat(formatID: "audio", extensionName: "m4a", protocolName: "https", audioCodec: "mp4a.40.2", videoCodec: "none", url: URL(string: "https://cdn.example.test/audio")!, httpHeaders: [:], filesize: 10, bitrate: 128)
+        let extraction = YouTubeExtractionResult(id: "abcdefghijk", title: "Song", format: mediaFormat, formats: [mediaFormat], webkitJSCChallengeCalls: 0, webkitJSCChallengeSuccesses: 0)
+        var importCalled = false
+        let service = YouTubeAudioImportService(
+            extract: { _ in extraction },
+            download: { request in
+                let response = try XCTUnwrap(HTTPURLResponse(url: XCTUnwrap(request.url), statusCode: 206, httpVersion: nil, headerFields: ["Content-Length": "10", "Content-Range": "bytes 5-14/20"]))
+                return (FileManager.default.temporaryDirectory.appendingPathComponent("unused-download-\(UUID().uuidString)"), response)
+            },
+            importFile: { _ in
+                importCalled = true
+                return nil
+            }
+        )
+
+        do {
+            _ = try await service.run(try XCTUnwrap(YouTubeVideoURL("https://youtu.be/abcdefghijk")), update: { _ in })
+            XCTFail("A partial response that does not start at byte zero must fail before library import.")
+        } catch YouTubeImportError.downloadFailed {
+        }
+        XCTAssertFalse(importCalled)
+    }
+
+    @MainActor
+    func testRangeRequestRejectedWithRequestedRangeNotSatisfiableFailsWithoutImporting() async throws {
+        var importCalled = false
+        let service = YouTubeAudioImportService(
+            extract: { _ in self.extractionResult("Title") },
+            download: { request in
+                let response = HTTPURLResponse(url: try XCTUnwrap(request.url), statusCode: 416, httpVersion: nil, headerFields: nil)!
+                return (FileManager.default.temporaryDirectory.appendingPathComponent("unused-download-\(UUID().uuidString)"), response)
+            },
+            importFile: { _ in
+                importCalled = true
+                return nil
+            }
+        )
+
+        do {
+            _ = try await service.run(try XCTUnwrap(YouTubeVideoURL("https://youtu.be/abcdefghijk")), update: { _ in })
+            XCTFail("A 416 range rejection must fail before library import.")
+        } catch YouTubeImportError.httpFailure(let status) {
+            XCTAssertEqual(status, 416)
+        }
+        XCTAssertFalse(importCalled)
+    }
+
+    @MainActor
     func testCancellationAfterTransferReturnsCleansSourceBeforeImport() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("youtube-cancel-transfer-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: false)

@@ -126,7 +126,9 @@ struct YouTubeAudioImportService {
 
     func analyze(_ video: YouTubeVideoURL) async throws -> YouTubePreparedDownload {
         try Task.checkCancellation()
+        let extractionStart = Date()
         let extraction = try await extract(video)
+        VIPODPythonLog(String(format: "Stage extraction: %.2f s for %@. Signed URL suppressed.", Date().timeIntervalSince(extractionStart), video.videoID))
         try Task.checkCancellation()
         guard extraction.id == video.videoID else { throw YouTubeImportError.extraction("The extracted video did not match the requested video.") }
         let music = extraction.music
@@ -175,6 +177,11 @@ struct YouTubeAudioImportService {
         var warning: String?
         let maximumMediaRequests = 4
         let maximumRankedCandidatesPerExtraction = 3
+        let downloadStart = Date()
+        var transferSeconds = 0.0
+        var artworkSeconds = 0.0
+        var taggingSeconds = 0.0
+        var importSeconds = 0.0
 
         for attempt in 0..<maximumMediaRequests {
             var format = extraction.formats.first(where: { !attemptedURLs.contains($0.url) })
@@ -185,7 +192,9 @@ struct YouTubeAudioImportService {
                     throw YouTubeImportError.downloadFailed
                 }
                 update(.refreshing)
+                let refreshStart = Date()
                 let refreshed = try await extract(YouTubeVideoURL("https://youtu.be/\(prepared.preview.videoID)")!)
+                VIPODPythonLog(String(format: "Stage extraction refresh: %.2f s. Signed URL suppressed.", Date().timeIntervalSince(refreshStart)))
                 try Task.checkCancellation()
                 extraction = refreshed.selecting(refreshed.formats.first ?? refreshed.format)
                     .preserving(prepared.extraction, identity: prepared.preview.videoID)
@@ -202,6 +211,7 @@ struct YouTubeAudioImportService {
             update(.downloading)
             var request = URLRequest(url: format.url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 90)
             format.httpHeaders.forEach { request.setValue($1, forHTTPHeaderField: $0) }
+            request.setValue("bytes=0-", forHTTPHeaderField: "Range")
             let exactExpectedBytes = format.filesize.flatMap { $0 > 0 ? $0 : nil }
             let approximateExpectedBytes = format.filesizeApprox.flatMap { $0 > 0 ? $0 : nil }
             let expectedBytes = exactExpectedBytes ?? approximateExpectedBytes
@@ -214,6 +224,7 @@ struct YouTubeAudioImportService {
                 fallbackExpectedBytes: approximateExpectedBytes,
                 fallbackIsEstimated: true
             ))
+            let transferStart = Date()
             let (candidateURL, response) = try await downloadRequest(
                 request,
                 prepared.operationID,
@@ -222,16 +233,22 @@ struct YouTubeAudioImportService {
                 expectedBytesAreEstimated,
                 progress
             )
+            transferSeconds += Date().timeIntervalSince(transferStart)
             temporaryFiles.track(candidateURL)
             try Task.checkCancellation()
             guard let http = response as? HTTPURLResponse else { throw YouTubeImportError.downloadFailed }
             guard http.url?.scheme?.lowercased() == "https" else { throw YouTubeImportError.insecureFormat }
+            VIPODPythonLog("Stage media transfer attempt \(attempt) returned HTTP \(http.statusCode).")
             if (http.statusCode == 401 || http.statusCode == 403), attempt < maximumMediaRequests - 1 {
                 try temporaryFiles.remove(candidateURL)
                 finalHTTPStatus = http.statusCode
                 continue
             }
             guard (200..<300).contains(http.statusCode) else { throw YouTubeImportError.httpFailure(http.statusCode) }
+            if http.statusCode == 206 {
+                let contentRange = http.value(forHTTPHeaderField: "Content-Range")?.lowercased()
+                guard let contentRange, contentRange.hasPrefix("bytes 0-") else { throw YouTubeImportError.downloadFailed }
+            }
             finalHTTPStatus = nil
             let signature: Data
             do {
@@ -261,6 +278,7 @@ struct YouTubeAudioImportService {
             throw YouTubeImportError.downloadFailed
         }
 
+        let artworkStart = Date()
         var artwork = artworkOverride
         if artworkOverride != nil {
             update(.preparingArtwork)
@@ -275,7 +293,9 @@ struct YouTubeAudioImportService {
             warning = "No video thumbnail was available; the audio will be saved without artwork."
         }
 
+        artworkSeconds = Date().timeIntervalSince(artworkStart)
         update(.tagging)
+        let taggingStart = Date()
         let taggedURL: URL
         do {
             taggedURL = try await tagFile(sourceURL, effectiveMetadata, artwork)
@@ -297,6 +317,7 @@ struct YouTubeAudioImportService {
         Self.captureReadbackDiagnosticIfRequested(source: sourceURL, metadata: effectiveMetadata, artwork: artwork)
         temporaryFiles.track(taggedURL)
         try Task.checkCancellation()
+        taggingSeconds = Date().timeIntervalSince(taggingStart)
 
         update(.validating)
         let taggedSignature = Data(try Data(contentsOf: taggedURL, options: .mappedIfSafe).prefix(12))
@@ -304,10 +325,13 @@ struct YouTubeAudioImportService {
             throw YouTubeImportError.invalidAudioContainer
         }
         update(.importing)
+        let importStart = Date()
         guard let report = await importFile(taggedURL) else {
             throw YouTubeImportError.libraryImportFailed("The library rejected this import job.")
         }
+        importSeconds = Date().timeIntervalSince(importStart)
         if let track = report.imported.first {
+            VIPODPythonLog(String(format: "Stage timing %@: download=%.2f s, artwork=%.2f s, tagging=%.2f s, import=%.2f s, download-through-import=%.2f s. Signed URL suppressed.", prepared.preview.videoID, transferSeconds, artworkSeconds, taggingSeconds, importSeconds, Date().timeIntervalSince(downloadStart)))
             return YouTubeAudioImportOutcome(track: track, extraction: extraction, cancellationArrivedAfterCommit: report.wasCancelled || Task.isCancelled, artworkWarning: warning)
         }
         if report.wasCancelled || Task.isCancelled { throw CancellationError() }

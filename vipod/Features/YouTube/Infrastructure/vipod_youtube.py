@@ -254,7 +254,7 @@ def build_payload(info, challenge_calls, challenge_successes):
     return payload
 
 
-def extract(url: str) -> str:
+def extract(url: str, cache_dir=None) -> str:
     calls_before = _APPLE_WEBKIT_CHALLENGE_CALLS
     successes_before = _APPLE_WEBKIT_CHALLENGE_SUCCESSES
     print(
@@ -272,8 +272,8 @@ def extract(url: str) -> str:
         "noplaylist": True,
         "skip_download": True,
         "extract_flat": False,
-        "cachedir": False,
-        "extractor_args": {"youtube": {"jsc_trace": ["true"], "player_client": ["web_embedded", "web", "visionos"]}},
+        "cachedir": cache_dir if cache_dir else False,
+        "extractor_args": {"youtube": {"jsc_trace": ["true"], "player_client": ["visionos", "web"]}},
         "socket_timeout": 25,
         "retries": 0,
         "extractor_retries": 0,

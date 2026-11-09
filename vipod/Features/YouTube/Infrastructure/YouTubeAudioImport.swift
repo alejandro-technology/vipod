@@ -360,8 +360,24 @@ nonisolated final class EmbeddedYouTubeExtractor: @unchecked Sendable {
             throw YouTubeImportError.extraction(initializationError?.localizedDescription ?? "Embedded Python initialization failed.")
         }
 
+        var cacheDirectory: String?
+        if let cachesURL = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first {
+            let directoryURL = cachesURL.appendingPathComponent("yt-dlp", isDirectory: true)
+            do {
+                try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+                cacheDirectory = directoryURL.path
+            } catch {
+                cacheDirectory = nil
+            }
+        }
+        if cacheDirectory != nil {
+            VIPODPythonLog("The yt-dlp extraction cache is enabled.")
+        } else {
+            VIPODPythonLog("The yt-dlp extraction cache is unavailable; extraction continues without a cache.")
+        }
+
         var pythonError: NSError?
-        guard let json = VIPODPythonExtract(video.videoID, &pythonError) else {
+        guard let json = VIPODPythonExtract(video.videoID, cacheDirectory, &pythonError) else {
             throw YouTubeImportError.extraction(pythonError?.localizedDescription ?? "Embedded extraction returned no result.")
         }
         let extraction: YouTubeExtraction
