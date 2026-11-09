@@ -2,6 +2,15 @@
 
 VIPOD is a native SwiftUI music player with an iPod Classic-inspired interface for local music.
 
+## Demo
+
+<p align="center">
+  <a href="docs/video/vipod-demo.mp4">
+    <img src="docs/video/vipod-demo.gif" width="260" alt="VIPOD demo: browsing the menus and playing real music" />
+  </a>
+</p>
+<p align="center"><em>Browse the menus and play real music — <a href="docs/video/vipod-demo.mp4">watch the full demo with sound (MP4)</a></em></p>
+
 ## Screenshots
 
 Explore the main menu, library songs, and Now Playing in both appearance themes:
@@ -49,7 +58,7 @@ Auto-run is opt-in and only applies when the Debug diagnostic screen is explicit
 xcodebuild test -project vipod.xcodeproj -scheme vipod -testPlan YouTubeRuntime -destination 'platform=iOS Simulator,name=iPhone 17 Pro' -only-testing:vipodUITests/YouTubeRuntimeUITests/testExplicitLiveYouTubeRuntimeImport
 ```
 
-The UI test exercises a real public video, verifies an Apple WebKit N/Sig challenge was solved, downloads/imports the M4A, repeats extraction to verify the duplicate rule, then relaunches the app and plays the saved file. It uses `--uitesting-library-fixture` with `--uitesting-reset-library`, so the track is saved under the isolated `VIPOD-UITesting` catalog. A normal app-icon launch uses the `VIPOD` catalog and will not show that test track.
+The UI test exercises a real public video, accepts either a solved Apple WebKit N/Sig challenge or a non-gated client path that does not require one, downloads/imports the M4A, repeats extraction to verify the duplicate rule, then relaunches the app and plays the saved file. It uses `--uitesting-library-fixture` with `--uitesting-reset-library`, so the track is saved under the isolated `VIPOD-UITesting` catalog. A normal app-icon launch uses the `VIPOD` catalog and will not show that test track.
 
 For the normal-catalog offline check, host-launch the diagnostic with the three arguments above **without** `--uitesting-library-fixture` or `--uitesting-reset-library`. After import, manually enable Airplane Mode, relaunch VIPOD from its app icon, and play the saved track from **Music → Songs**. If you intentionally test the fixture catalog instead, host-launch with `--uitesting-library-fixture` again and omit `--uitesting-reset-library` on relaunch; the app icon does not carry those test arguments. Neither UI test toggles Airplane Mode.
 
@@ -74,3 +83,15 @@ xcodebuild test -project vipod.xcodeproj -scheme vipod -destination 'platform=iO
 ```
 
 The project targets iOS 18.6. Xcode 26.3's available simulator runtime is 26.3; background playback behavior should also be verified on a real device.
+
+## Known test-target issue (`nonisolated`)
+
+The `vipodTests` target does not compile on Xcode 27.2. Both the app and test targets set `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`, so `TrackRepository` is global-actor isolated; the `private actor` test doubles in `ClassicPlayer*Tests.swift`, `LibraryControllerTests.swift`, `LibraryCollectionControllerTests.swift`, and `PlaybackQueueEditingTests.swift` fail with `actor '…' cannot conform to global-actor-isolated protocol 'TrackRepository'`. This issue predates the YouTube import work and prevents the unit-test command above from building the target.
+
+Status: pending fix. The one-line workaround verified on Xcode 27.2 is to mark the protocol declaration nonisolated:
+
+```swift
+nonisolated public protocol TrackRepository: Sendable {
+```
+
+With that change the target compiles and the YouTube import tests pass (32/32); it was applied only during verification and reverted, so the current tree still fails to build `vipodTests`. Land the fix as its own commit and re-verify it with the team's Xcode version first, since the project also documents Xcode 26.3.
