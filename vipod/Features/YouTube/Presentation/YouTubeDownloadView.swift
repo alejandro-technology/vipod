@@ -228,7 +228,7 @@ struct YouTubeDownloadView: View {
                 metadataField("Disc total", keyPath: \.discNumberTotal, identifier: "youtube.metadata.discNumberTotal", numeric: true)
             }
             if let message = controller.metadataValidationMessage {
-                Text(message).font(.footnote).foregroundStyle(.red)
+                Text(message).font(.footnote).foregroundStyle(Color(uiColor: .systemRed))
                     .accessibilityIdentifier("youtube.metadata.validation")
             }
         }

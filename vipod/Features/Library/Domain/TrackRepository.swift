@@ -1,6 +1,6 @@
 import Foundation
 
-public protocol TrackRepository: Sendable {
+nonisolated public protocol TrackRepository: Sendable {
     func tracks() async throws -> [Track]
     func importTracks(from urls: [URL]) async throws -> TrackImportReport
     func removeTrack(id: UUID) async throws

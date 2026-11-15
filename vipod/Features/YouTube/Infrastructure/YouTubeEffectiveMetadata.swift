@@ -65,6 +65,11 @@ struct YouTubeM4AMetadataWriter {
         formatID == kAudioFormatMPEG4AAC
     }
 
+    static func decodedDurationTolerance(frameSeconds: Double?) -> Double {
+        guard let frameSeconds, frameSeconds.isFinite, frameSeconds > 0 else { return 0.05 }
+        return max(0.05, 8 * frameSeconds)
+    }
+
     func write(
         sourceURL: URL,
         metadata: YouTubeEffectiveMetadata,
@@ -165,9 +170,15 @@ struct YouTubeM4AMetadataWriter {
         let audioTracks = try await asset.load(.tracks).filter { $0.mediaType == .audio }
         var descriptions: [CMFormatDescription] = []
         for track in audioTracks { descriptions.append(contentsOf: try await track.load(.formatDescriptions)) }
-        guard descriptions.contains(where: { CMFormatDescriptionGetMediaSubType($0) == kAudioFormatMPEG4AAC }) else {
+        let aacDescriptions = descriptions.filter { CMFormatDescriptionGetMediaSubType($0) == kAudioFormatMPEG4AAC }
+        guard !aacDescriptions.isEmpty else {
             throw WriterError.verificationFailed("Output codec is not AAC")
         }
+        let outputASBDs = aacDescriptions.compactMap { CMAudioFormatDescriptionGetStreamBasicDescription($0)?.pointee }
+        let outputFrameRates = outputASBDs
+            .filter { $0.mSampleRate > 0 && $0.mFramesPerPacket > 0 }
+            .map { Double($0.mFramesPerPacket) / $0.mSampleRate }
+        let outputFrameSeconds = outputFrameRates.max()
         guard try await isPassthroughCompatibleAAC(sourceURL: url) else {
             throw WriterError.verificationFailed("Output AAC profile changed")
         }
@@ -175,7 +186,7 @@ struct YouTubeM4AMetadataWriter {
         do { outputDuration = try decodedAudioDuration(url) }
         catch { throw WriterError.verificationFailed("Output AAC frame duration unavailable") }
         let durationDelta = abs(outputDuration - sourceDuration)
-        guard durationDelta < 0.05 else {
+        guard durationDelta < Self.decodedDurationTolerance(frameSeconds: outputFrameSeconds) else {
             throw WriterError.verificationFailed(
                 "Decoded AAC duration changed (source \(sourceDuration)s, output \(outputDuration)s, delta \(durationDelta)s)"
             )

@@ -161,6 +161,9 @@ public struct ClassicPlayerView: View {
         }
         .foregroundStyle(theme.palette.screenText)
         .background(theme.palette.screen)
+        // The LCD is a light surface in both themes; keep embedded system controls
+        // (Slider, TextField placeholder, ProgressView) resolving light-mode colors.
+        .environment(\.colorScheme, .light)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("classic.display")
         .alert(

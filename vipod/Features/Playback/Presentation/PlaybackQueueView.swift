@@ -25,7 +25,9 @@ struct PlaybackQueueView: View {
                                 Button { select(track.id) } label: {
                                     VStack(alignment: .leading, spacing: 2) {
                                         Text(track.title).font(.system(size: 15, weight: selectedTrackID == track.id ? .bold : .regular))
-                                        Text(track.artist).font(.system(size: 11)).foregroundStyle(theme.palette.secondaryText)
+                                        Text(track.artist)
+                                            .font(.system(size: 11))
+                                            .foregroundStyle(selectedTrackID == track.id ? theme.palette.selectionText.opacity(0.82) : theme.palette.secondaryText)
                                     }
                                     .frame(maxWidth: .infinity, alignment: .leading)
                                     .contentShape(Rectangle())

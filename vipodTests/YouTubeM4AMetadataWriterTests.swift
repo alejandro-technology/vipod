@@ -12,6 +12,18 @@ final class YouTubeM4AMetadataWriterTests: XCTestCase {
         XCTAssertFalse(YouTubeM4AMetadataWriter.isPassthroughCompatibleAAC(formatID: kAudioFormatMPEGLayer3))
     }
 
+    func testDecodedDurationToleranceCoversPassthroughEditListRewrite() {
+        XCTAssertEqual(YouTubeM4AMetadataWriter.decodedDurationTolerance(frameSeconds: nil), 0.05, accuracy: 1e-12)
+        XCTAssertEqual(YouTubeM4AMetadataWriter.decodedDurationTolerance(frameSeconds: 0), 0.05, accuracy: 1e-12)
+        XCTAssertEqual(YouTubeM4AMetadataWriter.decodedDurationTolerance(frameSeconds: -1), 0.05, accuracy: 1e-12)
+        XCTAssertEqual(YouTubeM4AMetadataWriter.decodedDurationTolerance(frameSeconds: .infinity), 0.05, accuracy: 1e-12)
+        let aacLCFrame = 1024.0 / 44100.0
+        let tolerance = YouTubeM4AMetadataWriter.decodedDurationTolerance(frameSeconds: aacLCFrame)
+        XCTAssertEqual(tolerance, 8 * aacLCFrame, accuracy: 1e-12)
+        XCTAssertGreaterThan(tolerance, 2455.0 / 44100.0)
+        XCTAssertLessThan(tolerance, 0.25)
+    }
+
     func testWritesAndImportsEffectiveMetadataArtworkAndPreservesAAC() async throws {
         let source = try fixture()
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
