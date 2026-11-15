@@ -21,7 +21,7 @@ struct NowPlayingView: View {
                 VStack(spacing: 6) {
                     HStack(spacing: 10) {
                         RetroArtworkFrame(artwork: artwork, theme: theme)
-                            .frame(width: 96, height: 96)
+                            .frame(width: 140, height: 140)
                         VStack(alignment: .leading, spacing: 3) {
                             Text(track?.title ?? String(localized: "Nothing Playing"))
                                 .font(.system(size: 15, weight: .bold))

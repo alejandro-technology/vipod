@@ -23,6 +23,7 @@ struct YouTubeDownloadView: View {
     @Environment(\.dismiss) private var dismiss
     @AppStorage("vipod.theme") private var themePreference = "black"
     @State private var musicBrainzStep: MusicBrainzStep = .recordings
+    @State private var keyboardHeight: CGFloat = 0
 
     private var colorScheme: ColorScheme { themePreference == "white" ? .light : .dark }
 
@@ -51,8 +52,14 @@ struct YouTubeDownloadView: View {
                     }
                 }
                 .padding()
+                .padding(.bottom, 88)
                 .frame(maxWidth: 680, alignment: .leading)
                 .frame(maxWidth: .infinity)
+            }
+            .overlay(alignment: .bottomTrailing) {
+                floatingActionButton
+                    .padding(.trailing, 20)
+                    .padding(.bottom, 24 + keyboardHeight)
             }
             .navigationTitle("YouTube Downloads")
             .navigationBarTitleDisplayMode(.inline)
@@ -63,6 +70,13 @@ struct YouTubeDownloadView: View {
             }
         }
         .preferredColorScheme(colorScheme)
+        .task { detectClipboardURL() }
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillChangeFrameNotification)) { notification in
+            keyboardHeight = Self.keyboardHeight(from: notification)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
+            keyboardHeight = 0
+        }
         .onChange(of: controller.musicBrainzQuery) { _, _ in
             musicBrainzStep = .recordings
         }
@@ -84,24 +98,54 @@ struct YouTubeDownloadView: View {
                 Button("Cancel", action: controller.cancel)
                     .disabled(isCancelling)
                     .accessibilityIdentifier("youtube.download.cancel")
-            } else if controller.previewExists {
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var floatingActionButton: some View {
+        if !isWorking {
+            if controller.previewExists {
                 Button(action: controller.downloadPreview) {
-                    Label(controller.isPreviewReady ? "Download M4A" : "Retry download", systemImage: "arrow.down.circle.fill")
-                        .frame(maxWidth: .infinity)
+                    Image(systemName: "arrow.down.circle.fill")
+                        .font(.system(size: 24, weight: .semibold))
+                        .frame(width: 58, height: 58)
                 }
                 .buttonStyle(.borderedProminent)
                 .disabled(controller.isBusy || !controller.isMetadataValid)
+                .accessibilityLabel(controller.isPreviewReady ? "Download M4A" : "Retry download")
                 .accessibilityIdentifier("youtube.download.confirm")
             } else {
                 Button(action: controller.submit) {
-                    Label("Get information", systemImage: "magnifyingglass")
-                        .frame(maxWidth: .infinity)
+                    Image(systemName: "magnifyingglass")
+                        .font(.system(size: 24, weight: .semibold))
+                        .frame(width: 58, height: 58)
                 }
                 .buttonStyle(.borderedProminent)
                 .disabled(controller.isBusy || controller.urlText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                .accessibilityLabel("Get information")
                 .accessibilityIdentifier("youtube.download.analyze")
             }
         }
+    }
+
+    private func detectClipboardURL() {
+        guard !controller.isBusy,
+              controller.urlText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        guard let pasted = UIPasteboard.general.string,
+              YouTubeVideoURL(pasted) != nil else { return }
+        controller.urlText = pasted.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private static func keyboardHeight(from notification: Notification) -> CGFloat {
+        guard let endFrame = (notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? NSValue)?.cgRectValue,
+              endFrame.height > 0 else { return 0 }
+        let bottomInset = UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .flatMap(\.windows)
+            .first { $0.isKeyWindow }?
+            .safeAreaInsets.bottom ?? 0
+        return max(0, endFrame.height - bottomInset)
     }
 
     private func previewCard(_ preview: YouTubeVideoPreview) -> some View {
@@ -147,19 +191,19 @@ struct YouTubeDownloadView: View {
            let image = UIImage(data: data) {
             Image(uiImage: image)
                 .resizable().scaledToFill()
-                .frame(width: 116, height: 72).clipShape(RoundedRectangle(cornerRadius: 8))
+                .frame(width: 96, height: 96).clipShape(RoundedRectangle(cornerRadius: 10))
                 .accessibilityLabel("MusicBrainz album cover")
         } else if let thumbnailURL = preview.thumbnailURL {
             AsyncImage(url: thumbnailURL) { image in
                 image.resizable().scaledToFill()
             } placeholder: {
-                RoundedRectangle(cornerRadius: 8).fill(.quaternary).overlay { ProgressView() }
+                RoundedRectangle(cornerRadius: 10).fill(.quaternary).overlay { ProgressView() }
             }
-            .frame(width: 116, height: 72).clipShape(RoundedRectangle(cornerRadius: 8))
+            .frame(width: 96, height: 96).clipShape(RoundedRectangle(cornerRadius: 10))
             .accessibilityLabel("YouTube video thumbnail")
         } else {
-            RoundedRectangle(cornerRadius: 8).fill(.quaternary)
-                .frame(width: 116, height: 72)
+            RoundedRectangle(cornerRadius: 10).fill(.quaternary)
+                .frame(width: 96, height: 96)
                 .overlay { Image(systemName: "music.note").foregroundStyle(.secondary) }
                 .accessibilityLabel("No artwork available")
         }
